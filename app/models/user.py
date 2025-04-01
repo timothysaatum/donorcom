@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Enum, DateTime, Boolean
 from app.db.base import Base
 from sqlalchemy.sql import func
-# from datetime import datetime
+from sqlalchemy.orm import relationship
 
 class User(Base):
     __tablename__ = "users"
@@ -14,6 +14,7 @@ class User(Base):
     phone = Column(String(20))
     is_active = Column(Boolean, default=True)
     status = Column(Boolean, default=True)
+    facility = relationship("Facility", back_populates="facility_manager", uselist=False)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     last_login = Column(DateTime, nullable=True)

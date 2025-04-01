@@ -1,4 +1,4 @@
-from app.models import user 
+from app.models import user, health_facility
 from logging.config import fileConfig
 from sqlalchemy import create_engine
 from alembic import context
