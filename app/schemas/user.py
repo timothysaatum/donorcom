@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict, ValidationInfo
 from typing import Optional
 from datetime import datetime
 
@@ -11,17 +11,18 @@ class UserBase(BaseModel):
 
 
 
-class UserCreationBase(UserBase):
+class UserCreate(UserBase):
     password: str = Field(..., min_length=8, max_length=100)
     password_comnfirm: str
 
     role: str = Field("staff", pattern="^(facility_administrator|lab_manager|staff)$")
 
     @field_validator('password_comnfirm')
-    def passwords_match(cls, v:str, values:dict) -> str:
-        if 'password' in values and v != values.data['password']:
+    def passwords_match(cls, v:str, values:ValidationInfo) -> str:
+        if 'password' in values.data and v != values.data['password']:
             raise ValueError('passwords do not match')
         return v
+    
     
     @field_validator('password')
     def password_complexity(cls, v: str) -> str:
@@ -40,5 +41,12 @@ class UserResponse(UserBase):
     is_active: bool
     created_at: datetime
     last_login: Optional[datetime] = None
+    #password: str
 
-    # model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True)  # Ensures ORM conversion
+    
+    
+class AuthResponse(BaseModel):
+    access_token: str
+    #token_type: str
+    user: UserResponse

@@ -10,11 +10,12 @@ class Settings(BaseSettings):
     DOCS_URL: str = "/docs"
     
     # Database
-    DATABASE_URL: str = Field(default="sqlite:///./donorcom.db")
+    #DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./donorcom.db")
+    DATABASE_URL: str = Field(..., env="DATABASE_URL")
     TEST_DATABASE_URL: str = Field(default="sqlite:///./test.db")
     
     # Security
-    SECRET_KEY: str = Field(default="your-secret-key-here")
+    SECRET_KEY: str = Field(..., env="SECRET_KEY")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60 * 24 * 7)  # 1 week
     
     # CORS
