@@ -17,6 +17,8 @@ router = APIRouter(
     tags=["users"]
 )
 
+
+
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED, summary="Create new user")
 async def create_user(user_data: UserCreate, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
 
@@ -35,7 +37,6 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
 
     SECRET_KEY = os.getenv("SECRET_KEY")
     ALGORITHM = os.getenv("ALGORITHM")
-    
 
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -71,10 +72,18 @@ async def get_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
     return user
 
 
-@router.patch("/me", response_model=UserResponse)
+@router.patch("/update-account", response_model=UserResponse)
 async def update_user(user_data: UserUpdate, db: AsyncSession = Depends(get_db), user: User = Depends(get_user)):
 
     user_service = UserService(db)
     updated_user = await user_service.update_user(user.id, user_data)
 
     return updated_user
+
+
+@router.delete("/delete-account", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_account(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_user)):
+
+    user_service = UserService(db)
+
+    await user_service.delete_user(current_user.id)

@@ -1,13 +1,13 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI#, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from app.routes import router as api_router
 from app.config import settings
 from sqladmin import Admin
 from .admin.user_admin import UserAdmin
-from app.database import engine
+from app.database import engine#, sync_engine
 # from app.utils.security import get_current_user
-from fastapi import Request
+# from fastapi import Request
 
 # class AuthenticatedAdmin(Admin):
 #     def __init__(self, app, engine, base_url="/admin"):
@@ -24,6 +24,8 @@ from fastapi import Request
 #             # If JWT is invalid or expired, block access
 #             raise HTTPException(status_code=401, detail="Access denied. Please log in.")
 #         return True
+
+
 
 def create_application() -> FastAPI:
     app = FastAPI(
@@ -47,6 +49,7 @@ def create_application() -> FastAPI:
     app.include_router(api_router, prefix=settings.API_PREFIX)
 
     admin = Admin(app, engine, base_url="/admin")
+    # admin = AuthenticatedAdmin(app, sync_engine, base_url="/admin")
     admin.add_view(UserAdmin)
 
     # Custom OpenAPI config for Swagger

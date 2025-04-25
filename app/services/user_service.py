@@ -62,7 +62,6 @@ class UserService:
             "user": user_data
         }
 
-
     async def get_user(self, user_id: UUID) -> Optional[User]:
         result = await self.db.execute(select(User).where(User.id == user_id))
         return result.scalar_one_or_none()
@@ -82,3 +81,13 @@ class UserService:
         await self.db.commit()
         await self.db.refresh(user)
         return user
+    
+
+    async def delete_user(self, user_id: UUID) -> None:
+        user = await self.get_user(user_id)
+
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        await self.db.delete(user)
+        await self.db.commit()

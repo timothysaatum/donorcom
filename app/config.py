@@ -9,19 +9,25 @@ class Settings(BaseSettings):
     VERSION: str = "1.0.0"
     API_PREFIX: str = "/api"
     DOCS_URL: str = "/docs"
-    
+
     # Database
     DATABASE_URL: str = Field(..., env="DATABASE_URL")
     TEST_DATABASE_URL: str = Field(default="sqlite:///./test.db")
-    
+
     # Security
     SECRET_KEY: str = Field(..., env="SECRET_KEY")
     ALGORITHM: str = Field(..., env="ALGORITHM")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60 * 24 * 7)
-    
+
     # CORS
+    # origins = [
+    # 'http://localhost:3000',
+    # 'http://localhost:3001',
+    # 'https:haemolync.com'
+    # ]
+
     BACKEND_CORS_ORIGINS: list[str] = Field(default=["*"])
-    
+
     # New in Pydantic v2
     model_config = SettingsConfigDict(
         env_file=".env",
