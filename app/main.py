@@ -5,6 +5,8 @@ from app.routes import router as api_router
 from app.config import settings
 from sqladmin import Admin
 from .admin.user_admin import UserAdmin
+from .admin.facility_admin import FacilityAdmin
+from .admin.blood_bank_admin import BloodBankAdmin
 from app.database import engine#, sync_engine
 # from app.utils.security import get_current_user
 # from fastapi import Request
@@ -51,6 +53,8 @@ def create_application() -> FastAPI:
     admin = Admin(app, engine, base_url="/admin")
     # admin = AuthenticatedAdmin(app, sync_engine, base_url="/admin")
     admin.add_view(UserAdmin)
+    admin.add_view(FacilityAdmin)
+    admin.add_view(BloodBankAdmin)
 
     # Custom OpenAPI config for Swagger
     def custom_openapi():
