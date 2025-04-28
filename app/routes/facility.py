@@ -79,7 +79,7 @@ async def update_facility(facility_id: UUID, facility_data: FacilityUpdate, db: 
     return updated_facility
 
 
-# Route to delete a facility
+
 @router.delete("/delete-facility/{facility_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_facility(facility_id: UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
 
