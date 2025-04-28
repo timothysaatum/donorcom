@@ -7,7 +7,7 @@ def send_verification_email(email: str, token: str):
     msg["Subject"] = "Verify your email"
     msg["From"] = "labconnectltd@gmail.com"
     msg["To"] = email
-    msg.set_content(f"Click the link to verify your email:\n\nhttp://127.0.0.1:8000/verify-email?token={token}")
+    msg.set_content(f"Click the link to verify your email:\n\nhttp://localhost:5173/verify-email?token={token}")
 
     # Gmail SMTP configuration
     smtp_server = "smtp.gmail.com"
