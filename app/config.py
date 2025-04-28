@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str = Field(..., env="SECRET_KEY")
     ALGORITHM: str = Field(..., env="ALGORITHM")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60 * 24 * 7)
+    HOST_EMAIL: str = Field(..., env="HOST_EMAIL")
+    HOST_PASSWORD: str = Field(..., env="HOST_PASSWORD")
 
     # CORS
     # origins = [

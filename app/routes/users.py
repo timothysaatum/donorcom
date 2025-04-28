@@ -41,8 +41,10 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
+
         if not user_id:
             raise HTTPException(status_code=400, detail="Invalid token")
+    
     except JWTError:
         raise HTTPException(status_code=400, detail="Invalid or expired token")
 
