@@ -59,3 +59,8 @@ class UserResponse(UserBase):
 class AuthResponse(BaseModel):
     access_token: str
     user: UserResponse
+
+
+class LoginSchema(BaseModel):
+    email: str
+    password: str

@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends,  Depends, Query, BackgroundTasks, HTTPException
+from fastapi import APIRouter, Depends,  Depends, BackgroundTasks, HTTPException
 from fastapi.responses import JSONResponse
-from app.schemas.user import AuthResponse
+from app.schemas.user import AuthResponse, LoginSchema
 from app.services.user_service import UserService
 from app.dependencies import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,9 +18,11 @@ router = APIRouter(
     tags=["auth"]
 )
 
-@router.post("/login", response_model=AuthResponse)
-async def login( background_tasks: BackgroundTasks, email: str = Query(...), password: str = Query(...), db: AsyncSession = Depends(get_db),):
 
+@router.post("/login", response_model=AuthResponse)
+async def login( background_tasks: BackgroundTasks, payload: LoginSchema, db: AsyncSession = Depends(get_db),):
+    email = payload.email
+    password = payload.password
     user_service = UserService(db)
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
