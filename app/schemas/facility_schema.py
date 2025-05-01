@@ -17,7 +17,7 @@ class FacilityBase(BaseModel):
 
     @field_validator("facility_digital_address")
     def match_gps_pattern(cls, v: str, values: ValidationInfo) -> str:
-        gps_pattern = re.compile(r"^[A-Z]{2}-\d{5}-\d{5}$")
+        gps_pattern = re.compile(r"^[A-Z]{2}-\d{3,5}-\d{3,5}$")
         if not gps_pattern.match(v):
             raise ValueError("Invalid digital address format. Expected format: 'GA-123-4567'")
         return v
@@ -34,10 +34,13 @@ class FacilityUpdate(BaseModel):
 
     @field_validator("facility_digital_address")
     def match_gps_pattern(cls, v: str, values: ValidationInfo) -> str:
+
         if v is not None:
-            gps_pattern = re.compile(r"^[A-Z]{2}-\d{3}-\d{4}$")
+            gps_pattern = re.compile(r"^[A-Z]{2}-\d{3,5}-\d{3,5}$")
+
             if not gps_pattern.match(v):
                 raise ValueError("Invalid digital address format. Expected format: 'GA-123-4567'")
+
         return v
 
     model_config = ConfigDict(from_attributes=True)

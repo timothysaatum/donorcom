@@ -20,7 +20,7 @@ router = APIRouter(
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login( background_tasks: BackgroundTasks, payload: LoginSchema, db: AsyncSession = Depends(get_db),):
+async def login( background_tasks: BackgroundTasks, payload: LoginSchema, db: AsyncSession = Depends(get_db)):
     email = payload.email
     password = payload.password
     user_service = UserService(db)
