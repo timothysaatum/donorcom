@@ -8,6 +8,7 @@ from sqlalchemy.future import select
 from app.models import User
 from app.utils.email_verification import send_verification_email
 from app.utils.security import create_verification_token
+from app.utils.data_wrapper import DataWrapper, ResponseWrapper
  
 
 
@@ -19,10 +20,10 @@ router = APIRouter(
 )
 
 
-@router.post("/login", response_model=AuthResponse)
-async def login( background_tasks: BackgroundTasks, payload: LoginSchema, db: AsyncSession = Depends(get_db)):
-    email = payload.email
-    password = payload.password
+@router.post("/login", response_model=ResponseWrapper[AuthResponse])
+async def login( background_tasks: BackgroundTasks, payload: DataWrapper[LoginSchema], db: AsyncSession = Depends(get_db)):
+    email = payload.data.email
+    password = payload.data.password
     user_service = UserService(db)
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
@@ -44,6 +45,8 @@ async def login( background_tasks: BackgroundTasks, payload: LoginSchema, db: As
         )
 
 
-    response = await user_service.authenticate_user(email=email, password=password)
+    auth_data = await user_service.authenticate_user(email=email, password=password)
 
-    return response
+    return {"data": AuthResponse(**auth_data)}
+
+
