@@ -24,3 +24,6 @@ class BloodInventory(Base):
     # Timestamps
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    def __str__(self):
+        return f"{self.blood_product} ({self.blood_type})"

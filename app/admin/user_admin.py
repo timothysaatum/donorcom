@@ -3,6 +3,8 @@ from app.models import User
 
 class UserAdmin(ModelView, model=User):
     
+    icon = "fa-solid fa-user"
+    
     form_columns = [
         User.name,
         User.email,

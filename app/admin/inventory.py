@@ -8,50 +8,33 @@ class BloodInventoryAdmin(ModelView, model=BloodInventory):
         BloodInventory.id,
         BloodInventory.blood_product,
         BloodInventory.blood_type,
+        "blood_bank.blood_bank_name",
         BloodInventory.quantity,
         BloodInventory.expiry_date,
-        BloodInventory.blood_bank_id,
-        BloodInventory.added_by_id,
+        "added_by.name",
         BloodInventory.created_at,
         BloodInventory.updated_at
     ]
-    
-    column_searchable_list = [
-        BloodInventory.blood_product,
-        BloodInventory.blood_type
-    ]
-    
-    column_sortable_list = [
-        BloodInventory.blood_product,
-        BloodInventory.blood_type,
-        BloodInventory.quantity,
-        BloodInventory.expiry_date,
-        BloodInventory.created_at
-    ]
-    
-    column_filters = [
-        BloodInventory.blood_product,
-        BloodInventory.blood_type,
-        BloodInventory.expiry_date,
-        BloodInventory.blood_bank_id
-    ]
-    
-    form_excluded_columns = [
-        BloodInventory.id,
-        BloodInventory.created_at,
-        BloodInventory.updated_at
-    ]
-    
+
+    column_labels = {
+        "blood_bank.blood_bank_name": "Blood Bank",
+        "added_by.name": "Added By"
+    }
+
+    column_formatters_detail = {
+        "blood_bank": lambda m, c: m.blood_bank.blood_bank_name if m.blood_bank else "N/A",
+        "added_by": lambda m, c: m.added_by.name if m.added_by else "N/A"
+    }
+
     can_create = True
     can_edit = True
     can_delete = True
     can_view_details = True
-    
+
     name = "Blood Inventory"
-    name_plural = "Blood Inventory"
+    name_plural = "Blood Inventories"
     icon = "fa-solid fa-droplet"
-    
-    # Add aggregations for the dashboard
+
     def get_dashboard_stats(self):
         return {
             "total_units": {

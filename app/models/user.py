@@ -31,6 +31,8 @@ class User(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     last_login = Column(DateTime, nullable=True)
 
+    def __str__(self):
+        return f"{self.name} ({self.email})"
     
     def update_login_time(self):
         """Call this method when user logs in"""
