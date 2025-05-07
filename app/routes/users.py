@@ -4,10 +4,11 @@ from app.services.user_service import UserService
 from app.dependencies import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
-from app.models import User
+from app.models.user import User
 from fastapi import BackgroundTasks
 from jose import jwt, JWTError
 import os
+from app.utils.security import get_current_user
 from sqlalchemy.future import select
 
 
@@ -60,32 +61,30 @@ async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
     return {"message": "Email successfully verified!"}
 
 
-@router.get("/{user_id}", response_model=UserResponse, summary="Get user by ID")
-async def get_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
+@router.get("/me", response_model=UserResponse, summary="Get current user")
+async def get_me(current_user: User = Depends(get_current_user)):
 
-    """Retrieve a specific user by their ID"""
-    user = await UserService(db).get_user(user_id)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
-        )
-    
-    return user
+    """
+    Retrieve the current authenticated user's info using JWT token.
+    """
+    return current_user
 
 
 @router.patch("/update-account", response_model=UserResponse)
-async def update_user(user_data: UserUpdate, db: AsyncSession = Depends(get_db), user: User = Depends(get_user)):
-
+async def update_user(
+    user_data: UserUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     user_service = UserService(db)
-    updated_user = await user_service.update_user(user.id, user_data)
-
+    updated_user = await user_service.update_user(current_user.id, user_data)
     return updated_user
 
 
 @router.delete("/delete-account", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_account(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_user)):
-
+async def delete_account(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     user_service = UserService(db)
-
     await user_service.delete_user(current_user.id)

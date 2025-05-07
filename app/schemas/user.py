@@ -2,6 +2,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict, Va
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
+from app.schemas.facility_schema import FacilityResponse
 
 
 
@@ -52,6 +53,7 @@ class UserResponse(UserBase):
     is_active: bool
     created_at: datetime
     last_login: Optional[datetime] = None
+    facility: Optional[FacilityResponse] = None
     
     model_config = ConfigDict(from_attributes = True) # Ensures ORM conversion
 

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.schemas.facility_schema import FacilityBase, FacilityResponse, DetailFacilityResponse, FacilityUpdate
+from app.schemas.facility_schema import FacilityBase, FacilityResponse, FacilityUpdate
 from app.services.facility_service import FacilityService
 from app.models.user import User
 from app.utils.security import get_current_user
@@ -36,7 +36,7 @@ async def create_facility(facility_data: FacilityBase, db: AsyncSession = Depend
     return FacilityResponse.model_validate(new_facility, from_attributes=True)
 
 
-@router.get("/get-facility-by-id/{facility_id}", response_model=DetailFacilityResponse)
+@router.get("/get-facility-by-id/{facility_id}", response_model=FacilityResponse)
 async def get_facility_by_id(facility_id: UUID, db: AsyncSession = Depends(get_db)):
 
     # Eagerly load the facility_manager relationship
@@ -51,10 +51,10 @@ async def get_facility_by_id(facility_id: UUID, db: AsyncSession = Depends(get_d
     if not facility:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Facility not found")
 
-    return DetailFacilityResponse.model_validate(facility, from_attributes=True)
+    return FacilityResponse.model_validate(facility, from_attributes=True)
 
 
-@router.get("/all", response_model=List[DetailFacilityResponse])
+@router.get("/all", response_model=List[FacilityResponse])
 async def get_all_facilities(db: AsyncSession = Depends(get_db)):
 
     facility_service = FacilityService(db)

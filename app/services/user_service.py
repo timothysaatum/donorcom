@@ -2,13 +2,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from fastapi import HTTPException
 from app.models.user import User
+from app.models.health_facility import Facility
 from app.schemas.user import UserCreate, UserResponse, UserUpdate
 from app.utils.security import get_password_hash, verify_password, create_access_token, create_verification_token
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
 from fastapi import BackgroundTasks
 from app.utils.email_verification import send_verification_email
+from sqlalchemy.orm import selectinload
 
 
 
@@ -45,17 +47,32 @@ class UserService:
 
         return created_user
 
+
     async def authenticate_user(self, email: str, password: str) -> dict:
-        result = await self.db.execute(select(User).where(User.email == email))
+        
+        result = await self.db.execute(
+            select(User)
+            .options(
+                selectinload(User.facility).selectinload(Facility.blood_bank)
+            )
+            .where(User.email == email)
+        )
         user = result.scalar_one_or_none()
 
         if not user or not verify_password(password, user.password):
             raise HTTPException(status_code=401, detail="Invalid credentials")
 
+        if not user.is_verified:
+            raise HTTPException(status_code=400, detail="User email not verified")
+
+        # update last login
+        user.last_login = datetime.utcnow()
+        await self.db.commit()
+
         token_data = {"sub": str(user.id), "email": user.email}
         access_token = create_access_token(data=token_data, expires_delta=timedelta(minutes=60))
 
-        user_data = UserResponse.model_validate(user).model_dump()
+        user_data = UserResponse.model_validate(user, from_attributes=True).model_dump()
 
         return {
             "access_token": access_token,

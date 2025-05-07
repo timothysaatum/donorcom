@@ -21,7 +21,7 @@ router = APIRouter(
 
 
 @router.post("/login", response_model=ResponseWrapper[AuthResponse])
-async def login( background_tasks: BackgroundTasks, payload: DataWrapper[LoginSchema], db: AsyncSession = Depends(get_db)):
+async def login(background_tasks: BackgroundTasks, payload: DataWrapper[LoginSchema], db: AsyncSession = Depends(get_db)):
     email = payload.data.email
     password = payload.data.password
     user_service = UserService(db)
@@ -32,11 +32,10 @@ async def login( background_tasks: BackgroundTasks, payload: DataWrapper[LoginSc
         raise HTTPException(status_code=400, detail="Invalid email or password")
 
     if not user.is_verified:
-        
         token = create_verification_token(email)
         user.verification_token = token
         await db.commit()
-    
+
         background_tasks.add_task(send_verification_email, email, token)
 
         return JSONResponse(
@@ -44,9 +43,9 @@ async def login( background_tasks: BackgroundTasks, payload: DataWrapper[LoginSc
             content={"detail": "Email not verified. A new verification link has been sent to your email."}
         )
 
-
     auth_data = await user_service.authenticate_user(email=email, password=password)
 
     return {"data": AuthResponse(**auth_data)}
+
 
 

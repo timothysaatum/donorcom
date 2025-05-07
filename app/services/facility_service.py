@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from uuid import UUID
 from app.models.health_facility import Facility
 from typing import Optional
-from app.schemas.facility_schema import FacilityBase, FacilityResponse, DetailFacilityResponse, FacilityUpdate
+from app.schemas.facility_schema import FacilityBase, FacilityResponse, FacilityUpdate
 from sqlalchemy.orm import selectinload
 
 
@@ -72,11 +72,11 @@ class FacilityService:
         await self.db.commit()
         return True
 
-    async def get_all_facilities(self) -> list[DetailFacilityResponse]:
+    async def get_all_facilities(self) -> list[FacilityResponse]:
         result = await self.db.execute(
         select(Facility).options(selectinload(Facility.facility_manager)))
         facilities = result.scalars().all()
         return [
-            DetailFacilityResponse.model_validate(facility, from_attributes=True)
+            FacilityResponse.model_validate(facility, from_attributes=True)
             for facility in facilities
         ]

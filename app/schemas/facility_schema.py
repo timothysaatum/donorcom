@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict, ValidationInfo
-from .user import UserResponse
+from app.schemas.blood_bank import BloodBankInFacilityResponse
 from typing import Optional
 from datetime import datetime
 from uuid import UUID
@@ -54,9 +54,5 @@ class FacilityResponse(BaseModel):
     facility_contact_number: Optional[str] = Field(..., min_length=10, max_length=14)
     facility_digital_address: str = Field(..., min_length=10, max_length=15)
     created_at: datetime
+    blood_bank: Optional[BloodBankInFacilityResponse] = None
     model_config = ConfigDict(from_attributes=True)
-
-
-class DetailFacilityResponse(FacilityResponse):
-
-    facility_manager: Optional[UserResponse] = None
