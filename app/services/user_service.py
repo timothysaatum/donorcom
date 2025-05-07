@@ -3,7 +3,7 @@ from sqlalchemy.future import select
 from fastapi import HTTPException
 from app.models.user import User
 from app.models.health_facility import Facility
-from app.schemas.user import UserCreate, UserResponse, UserUpdate
+from app.schemas.user import UserCreate, UserWithFacility, UserUpdate
 from app.utils.security import get_password_hash, verify_password, create_access_token, create_verification_token
 from datetime import datetime, timedelta
 from typing import Optional
@@ -49,7 +49,7 @@ class UserService:
 
 
     async def authenticate_user(self, email: str, password: str) -> dict:
-        
+
         result = await self.db.execute(
             select(User)
             .options(
@@ -66,13 +66,13 @@ class UserService:
             raise HTTPException(status_code=400, detail="User email not verified")
 
         # update last login
-        user.last_login = datetime.utcnow()
+        user.last_login = datetime.now()
         await self.db.commit()
 
         token_data = {"sub": str(user.id), "email": user.email}
         access_token = create_access_token(data=token_data, expires_delta=timedelta(minutes=60))
 
-        user_data = UserResponse.model_validate(user, from_attributes=True).model_dump()
+        user_data = UserWithFacility.model_validate(user, from_attributes=True).model_dump()
 
         return {
             "access_token": access_token,

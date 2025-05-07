@@ -20,6 +20,7 @@ class BloodBank(Base):
 
     facility = relationship("Facility", back_populates="blood_bank", uselist=False)
     manager_user = relationship("User", back_populates="blood_bank", uselist=False)
+    blood_inventory = relationship("BloodInventory", back_populates="blood_bank", cascade="all, delete-orphan")
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

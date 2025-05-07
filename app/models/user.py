@@ -23,6 +23,7 @@ class User(Base):
 
     facility = relationship("Facility", back_populates="facility_manager", uselist=False)
     blood_bank = relationship("BloodBank", back_populates="manager_user", uselist=False)
+    added_blood_units = relationship("BloodInventory", back_populates="added_by")
     is_verified = Column(Boolean, default=False)
     verification_token = Column(String, nullable=True)
 

@@ -54,5 +54,8 @@ class FacilityResponse(BaseModel):
     facility_contact_number: Optional[str] = Field(..., min_length=10, max_length=14)
     facility_digital_address: str = Field(..., min_length=10, max_length=15)
     created_at: datetime
-    blood_bank: Optional[BloodBankInFacilityResponse] = None
     model_config = ConfigDict(from_attributes=True)
+
+
+class FacilityWithBloodBank(FacilityResponse):
+    blood_bank: Optional[BloodBankInFacilityResponse] = None
