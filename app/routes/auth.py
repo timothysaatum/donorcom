@@ -21,9 +21,9 @@ router = APIRouter(
 
 
 @router.post("/login", response_model=ResponseWrapper[AuthResponse])
-async def login(background_tasks: BackgroundTasks, payload: DataWrapper[LoginSchema], db: AsyncSession = Depends(get_db)):
-    email = payload.data.email
-    password = payload.data.password
+async def login(background_tasks: BackgroundTasks, credentials: LoginSchema, db: AsyncSession = Depends(get_db)):
+    email = credentials.email
+    password = credentials.password
     user_service = UserService(db)
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
