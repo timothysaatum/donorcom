@@ -87,6 +87,8 @@
 
 # # Create and expose the FastAPI app
 # app = create_application()
+
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
@@ -155,6 +157,7 @@ def create_application() -> FastAPI:
             f"{settings.API_PREFIX}/users/update-account",
             f"{settings.API_PREFIX}/users/delete-account",
             f"{settings.API_PREFIX}/users/me",
+            f"{settings.API_PREFIX}/users/auth/refresh",
             f"{settings.API_PREFIX}/blood-inventory",
             f"{settings.API_PREFIX}/blood-distribution",
         ]

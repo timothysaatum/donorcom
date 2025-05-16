@@ -119,7 +119,8 @@ async def login(
 
     return {"data": auth_response}
 
-@router.post("/refresh", response_model=DataWrapper[AuthResponse])
+
+@router.get("/refresh", response_model=DataWrapper[AuthResponse])
 async def refresh_token(
     response: Response,
     request: Request,
