@@ -108,8 +108,8 @@ async def login(
         key="refresh_token", 
         value=refresh_token, 
         httponly=True,  # Prevent JavaScript access
-        secure=True,    # Only send over HTTPS
-        samesite="lax", # Protect against CSRF
+        secure=False,    # Only send over HTTPS
+        samesite="Lax", # Protect against CSRF
         max_age=60 * 60 * 24 * REFRESH_TOKEN_EXPIRE_DAYS  # Cookie expiration
     )
 
