@@ -22,13 +22,15 @@
 #     HOST_PASSWORD: str = Field(..., env="HOST_PASSWORD")
 
 #     # CORS
-#     # origins = [
-#     # 'http://localhost:3000',
-#     # 'http://localhost:3001',
-#     # 'https:haemolync.com'
-#     # ]
-
-#     BACKEND_CORS_ORIGINS: list[str] = Field(default=["*"])
+#     BACKEND_CORS_ORIGINS: list[str] = Field(
+#         default=[
+#             "http://localhost:3000",  # Next.js default dev server
+#             "http://localhost:3001",  # Alternative Next.js port
+#             "http://localhost",
+#             "https://haemolync.com",  # Production domain
+#             "https://www.haemolync.com",  # Production domain with www
+#         ]
+#     )
 
 #     # New in Pydantic v2
 #     model_config = SettingsConfigDict(
@@ -62,11 +64,14 @@ class Settings(BaseSettings):
     HOST_EMAIL: str = Field(..., env="HOST_EMAIL")
     HOST_PASSWORD: str = Field(..., env="HOST_PASSWORD")
 
-    # CORS
+    # CORS - Modified to include localhost:8080 and wildcard for development
     BACKEND_CORS_ORIGINS: list[str] = Field(
         default=[
             "http://localhost:3000",  # Next.js default dev server
             "http://localhost:3001",  # Alternative Next.js port
+            "http://localhost:8080",  # Additional development port
+            "http://127.0.0.1:3000",  # Next.js on different host
+            "http://127.0.0.1:8080",  # Local development
             "http://localhost",
             "https://haemolync.com",  # Production domain
             "https://www.haemolync.com",  # Production domain with www

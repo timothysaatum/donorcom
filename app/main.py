@@ -19,13 +19,15 @@
 #         redoc_url=None
 #     )
 
-#     # CORS setup
+#     # CORS setup - Updated for Next.js frontend
 #     app.add_middleware(
 #         CORSMiddleware,
 #         allow_origins=settings.BACKEND_CORS_ORIGINS,
 #         allow_credentials=True,
-#         allow_methods=["*"],
-#         allow_headers=["*"],
+#         allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+#         allow_headers=["Content-Type", "Authorization", "Accept", "X-Requested-With"],
+#         expose_headers=["Content-Length", "Content-Type"],
+#         max_age=600,  # Cache preflight requests for 10 minutes
 #     )
 
 #     # Include API routes
@@ -106,13 +108,13 @@ def create_application() -> FastAPI:
         redoc_url=None
     )
 
-    # CORS setup - Updated for Next.js frontend
+    # Enhanced CORS setup for Next.js frontend
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.BACKEND_CORS_ORIGINS,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-        allow_headers=["Content-Type", "Authorization", "Accept", "X-Requested-With"],
+        allow_headers=["Content-Type", "Authorization", "Accept", "X-Requested-With", "Origin"],
         expose_headers=["Content-Length", "Content-Type"],
         max_age=600,  # Cache preflight requests for 10 minutes
     )
@@ -169,6 +171,11 @@ def create_application() -> FastAPI:
 
     # Assign the custom OpenAPI schema
     app.openapi = custom_openapi
+
+    @app.options("/{full_path:path}")
+    async def options_handler(full_path: str):
+        """Handle OPTIONS requests - often needed for CORS preflight requests"""
+        return {}
 
     return app
 
