@@ -117,7 +117,7 @@ def create_application() -> FastAPI:
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization", "Accept", "X-Requested-With", "Origin"],
-        expose_headers=["Content-Length", "Content-Type"],
+        expose_headers=["Content-Length", "Content-Type", "Set-Cookie"],
         max_age=600,  # Cache preflight requests for 10 minutes
     )
 
@@ -157,7 +157,7 @@ def create_application() -> FastAPI:
             f"{settings.API_PREFIX}/users/update-account",
             f"{settings.API_PREFIX}/users/delete-account",
             f"{settings.API_PREFIX}/users/me",
-            f"{settings.API_PREFIX}/users/auth/refresh",
+            # f"{settings.API_PREFIX}/users/auth/refresh",
             f"{settings.API_PREFIX}/blood-inventory",
             f"{settings.API_PREFIX}/blood-distribution",
         ]
