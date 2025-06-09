@@ -46,35 +46,6 @@ async def get_user_blood_bank_id(db: AsyncSession, user_id: UUID) -> UUID:
     )
 
 
-# @router.post("/", response_model=BloodDistributionDetailResponse, status_code=status.HTTP_201_CREATED)
-# async def create_distribution(
-#     distribution_data: BloodDistributionCreate,
-#     db: AsyncSession = Depends(get_db),
-#     current_user: User = Depends(get_current_user)
-# ):
-#     """
-#     Create a new blood distribution.
-#     The blood bank and user who created it are automatically assigned.
-#     """
-#     # Get the blood bank associated with the user
-#     blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
-    
-#     distribution_service = BloodDistributionService(db)
-#     new_distribution = await distribution_service.create_distribution(
-#         distribution_data=distribution_data,
-#         blood_bank_id=blood_bank_id,
-#         created_by_id=current_user.id
-#     )
-    
-#     # Format the response with additional information
-#     response = BloodDistributionDetailResponse(
-#         **BloodDistributionResponse.model_validate(new_distribution, from_attributes=True).model_dump(),
-#         dispatched_from_name=new_distribution.dispatched_from.blood_bank_name if new_distribution.dispatched_from else None,
-#         dispatched_to_name=new_distribution.dispatched_to.facility_name if new_distribution.dispatched_to else None,
-#         created_by_name=new_distribution.created_by.name if new_distribution.created_by else None
-#     )
-    
-#     return response
 @router.post("/", response_model=BloodDistributionDetailResponse, status_code=status.HTTP_201_CREATED)
 async def create_distribution(
     distribution_data: BloodDistributionCreate,

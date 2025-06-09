@@ -63,6 +63,7 @@ router = APIRouter(
     tags=["auth"]
 )
 
+
 @router.post("/login", response_model=DataWrapper[AuthResponse])
 async def login(
     response: Response, 
@@ -181,7 +182,7 @@ async def refresh_token(
             key="refresh_token", 
             value=new_refresh_token, 
             httponly=True,
-            secure=True,
+            secure=False,
             samesite="lax",
             max_age=60 * 60 * 24 * REFRESH_TOKEN_EXPIRE_DAYS
         )

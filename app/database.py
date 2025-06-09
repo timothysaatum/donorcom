@@ -43,10 +43,3 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         logging.info("Database initialized successfully.")
-# async def init_db():
-#     try:
-#         async with engine.begin() as conn:
-#             await conn.run_sync(Base.metadata.create_all)
-#         logging.info("Database initialized successfully.")
-#     except Exception as e:
-#         logging.error(f"Error initializing the database: {e}")
