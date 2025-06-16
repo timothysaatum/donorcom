@@ -1,24 +1,30 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func, and_, or_, desc
-from sqlalchemy.orm import selectinload, joinedload
+from sqlalchemy import func, and_, desc
+from sqlalchemy.orm import joinedload
 from fastapi import HTTPException
 from uuid import UUID
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any, Tuple
-
+from typing import Optional, List
+import random
+import string
 from app.models.distribution import BloodDistribution, BloodDistributionStatus
 from app.models.inventory import BloodInventory
 from app.schemas.distribution import BloodDistributionCreate, BloodDistributionUpdate, DistributionStats
+
+def generate_tracking_number(length=12):
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
 class BloodDistributionService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create_distribution(self,  
-                                distribution_data: BloodDistributionCreate,  
-                                blood_bank_id: UUID,  
-                                created_by_id: UUID) -> BloodDistribution:  
+    async def create_distribution(
+            self,  
+            distribution_data: BloodDistributionCreate,  
+            blood_bank_id: UUID,  
+            created_by_id: UUID
+        ) -> BloodDistribution:  
         """  
         Create a new blood distribution record and update inventory  
         """  
@@ -58,14 +64,14 @@ class BloodDistributionService:
         new_distribution = BloodDistribution(  
             blood_product_id=distribution_data.blood_product_id,  
             dispatched_from_id=blood_bank_id,  
-            dispatched_to_id=distribution_data.dispatched_to_id,  
+            dispatched_to_id=distribution_data.dispatched_to_id,
+            recipient_name=distribution_data.recipient_name, 
             created_by_id=created_by_id,  
             blood_product=blood_product,  
             blood_type=blood_type,  
             quantity=distribution_data.quantity,  
             notes=distribution_data.notes,  
-            tracking_number=distribution_data.tracking_number,  
-            # Status starts as pending by default  
+            tracking_number=generate_tracking_number() 
         )  
           
         self.db.add(new_distribution)  

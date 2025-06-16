@@ -3,7 +3,6 @@ from app.schemas.user import UserCreate, UserResponse, UserUpdate, UserWithFacil
 from app.services.user_service import UserService
 from app.dependencies import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
-from uuid import UUID
 from app.models.user import User
 from fastapi import BackgroundTasks
 from jose import jwt, JWTError

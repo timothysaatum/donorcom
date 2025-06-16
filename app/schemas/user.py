@@ -53,7 +53,6 @@ class UserResponse(UserBase):
     is_active: bool
     created_at: datetime
     last_login: Optional[datetime] = None
-    # facility: Optional[FacilityResponse] = None
 
     model_config = ConfigDict(from_attributes = True)
 
@@ -61,7 +60,6 @@ class UserResponse(UserBase):
 class UserWithFacility(UserResponse):
     facility: Optional[FacilityWithBloodBank] = None
 
-    # model_config = ConfigDict(from_attributes = True)
 
 class AuthResponse(BaseModel):
     access_token: str

@@ -8,6 +8,7 @@ from app.db.base import Base
 
 
 class Facility(Base):
+
     __tablename__ = "facilities"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, unique=True, index=True)

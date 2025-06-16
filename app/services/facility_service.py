@@ -4,9 +4,8 @@ from fastapi import HTTPException
 from uuid import UUID
 from app.models.health_facility import Facility
 from app.models.blood_bank import BloodBank
-from typing import Optional, Union, Tuple
+from typing import Optional, Union
 from app.schemas.facility_schema import FacilityBase, FacilityResponse, FacilityUpdate, FacilityWithBloodBankCreate, FacilityWithBloodBank
-from app.schemas.blood_bank import BloodBankBase, BloodBankCreate
 from sqlalchemy.orm import selectinload
 
 

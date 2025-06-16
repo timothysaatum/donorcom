@@ -1,12 +1,12 @@
 from pydantic import BaseModel, Field, UUID4
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
 from enum import Enum
 
 
 class DistributionStatus(str, Enum):
     pending = "pending"
-    in_transit = "in_transit"
+    in_transit = "in transit"
     delivered = "delivered"
     cancelled = "cancelled"
     returned = "returned"
@@ -22,7 +22,7 @@ class BloodDistributionBase(BaseModel):
 class BloodDistributionCreate(BloodDistributionBase):
     blood_product_id: Optional[UUID4] = Field(None, description="ID of the specific blood inventory item")
     dispatched_to_id: UUID4 = Field(..., description="ID of the facility receiving the blood")
-    tracking_number: Optional[str] = Field(None, description="Tracking number for shipment")
+    recipient_name: str = Field(..., description="name of patient")
 
 
 class BloodDistributionUpdate(BaseModel):
