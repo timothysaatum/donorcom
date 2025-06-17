@@ -21,7 +21,7 @@ from app.utils.data_wrapper import DataWrapper, ResponseWrapper
 # JWT and Token Configuration
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 180
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 # Password hashing context

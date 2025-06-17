@@ -1,15 +1,256 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Path
+# from fastapi import APIRouter, Depends, HTTPException, status, Path
+# from sqlalchemy.ext.asyncio import AsyncSession
+# from app.schemas.inventory import BloodInventoryCreate, BloodInventoryResponse, BloodInventoryUpdate, BloodInventoryDetailResponse
+# from app.services.inventory import BloodInventoryService
+# from app.models.user import User
+# from app.utils.security import get_current_user
+# from app.dependencies import get_db
+# from uuid import UUID
+# from typing import List, Optional
+# from sqlalchemy.future import select
+# from app.models.blood_bank import BloodBank
+
+
+# router = APIRouter(
+#     prefix="/blood-inventory",
+#     tags=["blood inventory"]
+# )
+
+
+# # Helper function to get blood bank ID for the current user
+# async def get_user_blood_bank_id(db: AsyncSession, user_id: UUID) -> UUID:
+#     """Get the blood bank ID associated with the user"""
+#     # Check if user is directly a blood bank manager
+#     result = await db.execute(
+#         select(BloodBank).where(BloodBank.manager_id == user_id)
+#     )
+#     blood_bank = result.scalar_one_or_none()
+    
+#     if blood_bank:
+#         return blood_bank.id
+    
+#     # TODO: If you have staff associations in your model, you could add additional logic here
+#     # to check if the user is a staff member at a blood bank
+    
+#     raise HTTPException(
+#         status_code=status.HTTP_403_FORBIDDEN,
+#         detail="You are not associated with any blood bank"
+#     )
+
+
+# @router.post("/", response_model=BloodInventoryResponse, status_code=status.HTTP_201_CREATED)
+# async def create_blood_unit(
+#     blood_data: BloodInventoryCreate,
+#     db: AsyncSession = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+#     """
+#     Add a new blood unit to inventory.
+#     The blood bank and user who added it are automatically assigned.
+#     """
+#     # Get the blood bank associated with the user
+#     blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
+    
+#     blood_service = BloodInventoryService(db)
+#     new_blood_unit = await blood_service.create_blood_unit(
+#         blood_data=blood_data,
+#         blood_bank_id=blood_bank_id,
+#         added_by_id=current_user.id
+#     )
+    
+#     return BloodInventoryResponse.model_validate(new_blood_unit, from_attributes=True)
+
+
+# @router.get("/{blood_unit_id}", response_model=BloodInventoryDetailResponse)
+# async def get_blood_unit(
+#     blood_unit_id: UUID,
+#     db: AsyncSession = Depends(get_db)
+# ):
+#     """Get details of a specific blood unit"""
+#     blood_service = BloodInventoryService(db)
+#     blood_unit = await blood_service.get_blood_unit(blood_unit_id)
+    
+#     if not blood_unit:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail="Blood unit not found"
+#         )
+    
+#     # Create response with additional fields
+#     response = BloodInventoryDetailResponse(
+#         **BloodInventoryResponse.model_validate(blood_unit, from_attributes=True).model_dump(),
+#         blood_bank_name=blood_unit.blood_bank.blood_bank_name if blood_unit.blood_bank else None,
+#         added_by_name=blood_unit.added_by.name if blood_unit.added_by else None
+#     )
+    
+#     return response
+
+
+# @router.get("/", response_model=List[BloodInventoryDetailResponse])
+# async def list_blood_units(
+#     blood_bank_id: Optional[UUID] = None,
+#     blood_type: Optional[str] = None,
+#     expiring_in_days: Optional[int] = None,
+#     db: AsyncSession = Depends(get_db)
+# ):
+#     """
+#     List blood units with optional filtering.
+#     Can filter by blood bank, blood type, or units expiring soon.
+#     """
+#     blood_service = BloodInventoryService(db)
+    
+#     if blood_bank_id:
+#         blood_units = await blood_service.get_blood_units_by_bank(blood_bank_id)
+#     elif blood_type:
+#         blood_units = await blood_service.get_blood_units_by_type(blood_type)
+#     elif expiring_in_days:
+#         blood_units = await blood_service.get_expiring_blood_units(expiring_in_days)
+#     else:
+#         blood_units = await blood_service.get_all_blood_units()
+    
+#     return [
+#         BloodInventoryDetailResponse(
+#             **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
+#             blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
+#             added_by_name=unit.added_by.name if unit.added_by else None
+#         )
+#         for unit in blood_units
+#     ]
+
+
+# @router.patch("/{blood_unit_id}", response_model=BloodInventoryResponse)
+# async def update_blood_unit(
+#     blood_unit_id: UUID,
+#     blood_data: BloodInventoryUpdate,
+#     db: AsyncSession = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+#     """
+#     Update a blood unit.
+#     User must be associated with the blood bank that owns this unit.
+#     """
+#     blood_service = BloodInventoryService(db)
+#     blood_unit = await blood_service.get_blood_unit(blood_unit_id)
+    
+#     if not blood_unit:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail="Blood unit not found"
+#         )
+    
+#     # Check if user is associated with this blood bank
+#     user_blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
+    
+#     if blood_unit.blood_bank_id != user_blood_bank_id:
+#         raise HTTPException(
+#             status_code=status.HTTP_403_FORBIDDEN,
+#             detail="You do not have permission to update this blood unit"
+#         )
+    
+#     updated_unit = await blood_service.update_blood_unit(blood_unit_id, blood_data)
+#     return BloodInventoryResponse.model_validate(updated_unit, from_attributes=True)
+
+
+# @router.delete("/{blood_unit_id}", status_code=status.HTTP_204_NO_CONTENT)
+# async def delete_blood_unit(
+#     blood_unit_id: UUID,
+#     db: AsyncSession = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+#     """
+#     Delete a blood unit.
+#     User must be associated with the blood bank that owns this unit.
+#     """
+#     blood_service = BloodInventoryService(db)
+#     blood_unit = await blood_service.get_blood_unit(blood_unit_id)
+    
+#     if not blood_unit:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail="Blood unit not found"
+#         )
+    
+#     # Check if user is associated with this blood bank
+#     user_blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
+    
+#     if blood_unit.blood_bank_id != user_blood_bank_id:
+#         raise HTTPException(
+#             status_code=status.HTTP_403_FORBIDDEN,
+#             detail="You do not have permission to delete this blood unit"
+#         )
+    
+#     await blood_service.delete_blood_unit(blood_unit_id)
+#     return {"detail": "Blood unit deleted successfully"}
+
+
+# @router.get("/bank/{blood_bank_id}", response_model=List[BloodInventoryDetailResponse])
+# async def get_blood_units_by_bank(
+#     blood_bank_id: UUID,
+#     db: AsyncSession = Depends(get_db)
+# ):
+#     """Get all blood units for a specific blood bank"""
+#     blood_service = BloodInventoryService(db)
+#     blood_units = await blood_service.get_blood_units_by_bank(blood_bank_id)
+    
+#     return [
+#         BloodInventoryDetailResponse(
+#             **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
+#             blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
+#             added_by_name=unit.added_by.name if unit.added_by else None
+#         )
+#         for unit in blood_units
+#     ]
+
+
+# @router.get("/expiring/{days}", response_model=List[BloodInventoryDetailResponse])
+# async def get_expiring_blood_units(
+#     days: int = Path(..., ge=1, le=90, description="Number of days to check for expiration"),
+#     db: AsyncSession = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+#     """
+#     Get blood units expiring in the specified number of days.
+#     Only shows units from the blood bank associated with the current user.
+#     """
+#     # Get the blood bank associated with the user
+#     blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
+    
+#     blood_service = BloodInventoryService(db)
+#     all_expiring = await blood_service.get_expiring_blood_units(days)
+    
+#     # Filter to only show units from the user's blood bank
+#     expiring_units = [unit for unit in all_expiring if unit.blood_bank_id == blood_bank_id]
+    
+#     return [
+#         BloodInventoryDetailResponse(
+#             **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
+#             blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
+#             added_by_name=unit.added_by.name if unit.added_by else None
+#         )
+#         for unit in expiring_units
+#     ]
+from fastapi import APIRouter, Depends, HTTPException, status, Path, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.schemas.inventory import BloodInventoryCreate, BloodInventoryResponse, BloodInventoryUpdate, BloodInventoryDetailResponse
+from app.schemas.inventory import (
+    BloodInventoryCreate, BloodInventoryResponse, BloodInventoryUpdate, 
+    BloodInventoryDetailResponse, BloodInventoryBatchCreate, BloodInventoryBatchUpdate,
+    BloodInventoryBatchDelete, PaginationParams, PaginatedResponse,
+    BloodInventoryFilter, BatchOperationResponse, InventoryStatistics,
+    BloodInventorySearchParams
+)
 from app.services.inventory import BloodInventoryService
 from app.models.user import User
+from app.models.inventory import BloodInventory
 from app.utils.security import get_current_user
 from app.dependencies import get_db
 from uuid import UUID
 from typing import List, Optional
 from sqlalchemy.future import select
 from app.models.blood_bank import BloodBank
+from datetime import datetime
+import logging
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/blood-inventory",
@@ -20,7 +261,6 @@ router = APIRouter(
 # Helper function to get blood bank ID for the current user
 async def get_user_blood_bank_id(db: AsyncSession, user_id: UUID) -> UUID:
     """Get the blood bank ID associated with the user"""
-    # Check if user is directly a blood bank manager
     result = await db.execute(
         select(BloodBank).where(BloodBank.manager_id == user_id)
     )
@@ -29,12 +269,24 @@ async def get_user_blood_bank_id(db: AsyncSession, user_id: UUID) -> UUID:
     if blood_bank:
         return blood_bank.id
     
-    # TODO: If you have staff associations in your model, you could add additional logic here
-    # to check if the user is a staff member at a blood bank
-    
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="You are not associated with any blood bank"
+    )
+
+
+# Create pagination dependency
+def get_pagination_params(
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page (max 100)"),
+    sort_by: Optional[str] = Query(None, description="Field to sort by"),
+    sort_order: str = Query("desc", regex="^(asc|desc)$", description="Sort order")
+) -> PaginationParams:
+    return PaginationParams(
+        page=page,
+        page_size=page_size,
+        sort_by=sort_by,
+        sort_order=sort_order
     )
 
 
@@ -48,7 +300,6 @@ async def create_blood_unit(
     Add a new blood unit to inventory.
     The blood bank and user who added it are automatically assigned.
     """
-    # Get the blood bank associated with the user
     blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
     
     blood_service = BloodInventoryService(db)
@@ -57,8 +308,151 @@ async def create_blood_unit(
         blood_bank_id=blood_bank_id,
         added_by_id=current_user.id
     )
-    
+
     return BloodInventoryResponse.model_validate(new_blood_unit, from_attributes=True)
+
+
+@router.post("/batch", response_model=BatchOperationResponse, status_code=status.HTTP_201_CREATED)
+async def batch_create_blood_units(
+    batch_data: BloodInventoryBatchCreate,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Batch create multiple blood units for improved performance.
+    Handles up to 1000 units per request with transaction safety.
+    """
+    blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
+    blood_service = BloodInventoryService(db)
+    
+    try:
+        created_units = await blood_service.batch_create_blood_units(
+            blood_units_data=batch_data.blood_units,
+            blood_bank_id=blood_bank_id,
+            added_by_id=current_user.id
+        )
+        
+        logger.info(f"Batch created {len(created_units)} blood units for bank {blood_bank_id}")
+        
+        return BatchOperationResponse(
+            success=True,
+            processed_count=len(created_units),
+            created_ids=[unit.id for unit in created_units]
+        )
+    
+    except Exception as e:
+        logger.error(f"Batch create failed: {str(e)}")
+        return BatchOperationResponse(
+            success=False,
+            processed_count=0,
+            failed_count=len(batch_data.blood_units),
+            errors=[str(e)]
+        )
+
+
+@router.patch("/batch", response_model=BatchOperationResponse)
+async def batch_update_blood_units(
+    batch_data: BloodInventoryBatchUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)):
+    """
+    Batch update multiple blood units.
+    Each update must include the unit ID and fields to update.
+    """
+    blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
+    blood_service = BloodInventoryService(db)
+
+    try:
+        # Verify all units belong to the user's blood bank
+        unit_ids = [update['id'] for update in batch_data.updates]
+        
+        # Check ownership
+        result = await db.execute(
+            select(BloodInventory.id, BloodInventory.blood_bank_id)
+            .where(BloodInventory.id.in_(unit_ids))
+        )
+        units_check = result.all()
+        
+        unauthorized_units = [
+            unit.id for unit in units_check 
+            if unit.blood_bank_id != blood_bank_id
+        ]
+        
+        if unauthorized_units:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"You don't have permission to update units: {unauthorized_units}"
+            )
+        
+        updated_units = await blood_service.batch_update_blood_units(batch_data.updates)
+        
+        logger.info(f"Batch updated {len(updated_units)} blood units for bank {blood_bank_id}")
+        
+        return BatchOperationResponse(
+            success=True,
+            processed_count=len(updated_units)
+        )
+    
+    except Exception as e:
+        logger.error(f"Batch update failed: {str(e)}")
+        return BatchOperationResponse(
+            success=False,
+            processed_count=0,
+            failed_count=len(batch_data.updates),
+            errors=[str(e)]
+        )
+
+
+@router.delete("/batch", response_model=BatchOperationResponse)
+async def batch_delete_blood_units(
+    batch_data: BloodInventoryBatchDelete,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Batch delete multiple blood units.
+    User must own all units being deleted.
+    """
+    blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
+    blood_service = BloodInventoryService(db)
+    
+    try:
+        # Verify ownership
+        result = await db.execute(
+            select(BloodInventory.id, BloodInventory.blood_bank_id)
+            .where(BloodInventory.id.in_(batch_data.unit_ids))
+        )
+        units_check = result.all()
+        
+        unauthorized_units = [
+            unit.id for unit in units_check 
+            if unit.blood_bank_id != blood_bank_id
+        ]
+        
+        if unauthorized_units:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"You don't have permission to delete units: {unauthorized_units}"
+            )
+        
+        deleted_count = await blood_service.batch_delete_blood_units(batch_data.unit_ids)
+        
+        logger.info(f"Batch deleted {deleted_count} blood units for bank {blood_bank_id}")
+        
+        return BatchOperationResponse(
+            success=True,
+            processed_count=deleted_count
+        )
+    
+    except Exception as e:
+        logger.error(f"Batch delete failed: {str(e)}")
+        return BatchOperationResponse(
+            success=False,
+            processed_count=0,
+            failed_count=len(batch_data.unit_ids),
+            errors=[str(e)]
+        )
 
 
 @router.get("/{blood_unit_id}", response_model=BloodInventoryDetailResponse)
@@ -76,7 +470,6 @@ async def get_blood_unit(
             detail="Blood unit not found"
         )
     
-    # Create response with additional fields
     response = BloodInventoryDetailResponse(
         **BloodInventoryResponse.model_validate(blood_unit, from_attributes=True).model_dump(),
         blood_bank_name=blood_unit.blood_bank.blood_bank_name if blood_unit.blood_bank else None,
@@ -86,36 +479,108 @@ async def get_blood_unit(
     return response
 
 
-@router.get("/", response_model=List[BloodInventoryDetailResponse])
-async def list_blood_units(
-    blood_bank_id: Optional[UUID] = None,
-    blood_type: Optional[str] = None,
-    expiring_in_days: Optional[int] = None,
+@router.get("/", response_model=PaginatedResponse[BloodInventoryDetailResponse])
+async def list_blood_units_paginated(
+    pagination: PaginationParams = Depends(get_pagination_params),
+    blood_bank_id: Optional[UUID] = Query(None, description="Filter by blood bank ID"),
+    blood_type: Optional[str] = Query(None, description="Filter by blood type"),
+    blood_product: Optional[str] = Query(None, description="Filter by blood product"),
+    expiry_date_from: Optional[datetime] = Query(None, description="Filter by expiry date from"),
+    expiry_date_to: Optional[datetime] = Query(None, description="Filter by expiry date to"),
+    search_term: Optional[str] = Query(None, description="Search in blood type and product"),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    List blood units with optional filtering.
-    Can filter by blood bank, blood type, or units expiring soon.
+    List blood units with comprehensive pagination and filtering.
+    Supports sorting by multiple fields and advanced search capabilities.
     """
     blood_service = BloodInventoryService(db)
     
-    if blood_bank_id:
-        blood_units = await blood_service.get_blood_units_by_bank(blood_bank_id)
-    elif blood_type:
-        blood_units = await blood_service.get_blood_units_by_type(blood_type)
-    elif expiring_in_days:
-        blood_units = await blood_service.get_expiring_blood_units(expiring_in_days)
-    else:
-        blood_units = await blood_service.get_all_blood_units()
+    result = await blood_service.get_paginated_blood_units(
+        pagination=pagination,
+        blood_bank_id=blood_bank_id,
+        blood_type=blood_type,
+        blood_product=blood_product,
+        expiry_date_from=expiry_date_from,
+        expiry_date_to=expiry_date_to,
+        search_term=search_term
+    )
     
-    return [
+    # Transform items to detailed response
+    detailed_items = [
         BloodInventoryDetailResponse(
             **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
             blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
             added_by_name=unit.added_by.name if unit.added_by else None
         )
-        for unit in blood_units
+        for unit in result.items
     ]
+    
+    return PaginatedResponse(
+        items=detailed_items,
+        total_items=result.total_items,
+        total_pages=result.total_pages,
+        current_page=result.current_page,
+        page_size=result.page_size,
+        has_next=result.has_next,
+        has_prev=result.has_prev
+    )
+
+
+@router.post("/search", response_model=PaginatedResponse[BloodInventoryDetailResponse])
+async def advanced_search_blood_units(
+    search_params: BloodInventorySearchParams,
+    pagination: PaginationParams = Depends(get_pagination_params),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Advanced search for blood units with multiple filter combinations.
+    Supports complex queries and multiple selection criteria.
+    """
+    blood_service = BloodInventoryService(db)
+    
+    # Convert search params to service method parameters
+    result = await blood_service.get_paginated_blood_units(
+        pagination=pagination,
+        blood_type=search_params.blood_types[0] if search_params.blood_types else None,
+        blood_product=search_params.blood_products[0] if search_params.blood_products else None,
+        expiry_date_from=datetime.combine(search_params.expiry_date_from, datetime.min.time()) if search_params.expiry_date_from else None,
+        expiry_date_to=datetime.combine(search_params.expiry_date_to, datetime.min.time()) if search_params.expiry_date_to else None,
+        search_term=search_params.search_term
+    )
+    
+    # Additional filtering for complex criteria
+    if search_params.blood_types and len(search_params.blood_types) > 1:
+        result.items = [item for item in result.items if item.blood_type in search_params.blood_types]
+    
+    if search_params.blood_products and len(search_params.blood_products) > 1:
+        result.items = [item for item in result.items if item.blood_product in search_params.blood_products]
+    
+    if search_params.min_quantity is not None:
+        result.items = [item for item in result.items if item.quantity >= search_params.min_quantity]
+    
+    if search_params.max_quantity is not None:
+        result.items = [item for item in result.items if item.quantity <= search_params.max_quantity]
+    
+    # Transform to detailed response
+    detailed_items = [
+        BloodInventoryDetailResponse(
+            **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
+            blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
+            added_by_name=unit.added_by.name if unit.added_by else None
+        )
+        for unit in result.items
+    ]
+    
+    return PaginatedResponse(
+        items=detailed_items,
+        total_items=len(detailed_items),
+        total_pages=(len(detailed_items) + pagination.page_size - 1) // pagination.page_size,
+        current_page=pagination.page,
+        page_size=pagination.page_size,
+        has_next=pagination.page * pagination.page_size < len(detailed_items),
+        has_prev=pagination.page > 1
+    )
 
 
 @router.patch("/{blood_unit_id}", response_model=BloodInventoryResponse)
@@ -138,7 +603,6 @@ async def update_blood_unit(
             detail="Blood unit not found"
         )
     
-    # Check if user is associated with this blood bank
     user_blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
     
     if blood_unit.blood_bank_id != user_blood_bank_id:
@@ -170,7 +634,6 @@ async def delete_blood_unit(
             detail="Blood unit not found"
         )
     
-    # Check if user is associated with this blood bank
     user_blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
     
     if blood_unit.blood_bank_id != user_blood_bank_id:
@@ -180,52 +643,199 @@ async def delete_blood_unit(
         )
     
     await blood_service.delete_blood_unit(blood_unit_id)
-    return {"detail": "Blood unit deleted successfully"}
 
 
-@router.get("/bank/{blood_bank_id}", response_model=List[BloodInventoryDetailResponse])
-async def get_blood_units_by_bank(
+@router.get("/bank/{blood_bank_id}", response_model=PaginatedResponse[BloodInventoryDetailResponse])
+async def get_blood_units_by_bank_paginated(
     blood_bank_id: UUID,
+    pagination: PaginationParams = Depends(get_pagination_params),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all blood units for a specific blood bank"""
+    """Get paginated blood units for a specific blood bank"""
     blood_service = BloodInventoryService(db)
-    blood_units = await blood_service.get_blood_units_by_bank(blood_bank_id)
+    result = await blood_service.get_blood_units_by_bank(blood_bank_id, pagination)
     
-    return [
+    if isinstance(result, list):
+        # Convert to paginated response for consistency
+        detailed_items = [
+            BloodInventoryDetailResponse(
+                **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
+                blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
+                added_by_name=unit.added_by.name if unit.added_by else None
+            )
+            for unit in result
+        ]
+        
+        return PaginatedResponse(
+            items=detailed_items,
+            total_items=len(detailed_items),
+            total_pages=1,
+            current_page=1,
+            page_size=len(detailed_items),
+            has_next=False,
+            has_prev=False
+        )
+    
+    # Transform paginated result
+    detailed_items = [
         BloodInventoryDetailResponse(
             **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
             blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
             added_by_name=unit.added_by.name if unit.added_by else None
         )
-        for unit in blood_units
+        for unit in result.items
     ]
+    
+    return PaginatedResponse(
+        items=detailed_items,
+        total_items=result.total_items,
+        total_pages=result.total_pages,
+        current_page=result.current_page,
+        page_size=result.page_size,
+        has_next=result.has_next,
+        has_prev=result.has_prev
+    )
 
 
-@router.get("/expiring/{days}", response_model=List[BloodInventoryDetailResponse])
-async def get_expiring_blood_units(
+@router.get("/expiring/{days}", response_model=PaginatedResponse[BloodInventoryDetailResponse])
+async def get_expiring_blood_units_paginated(
     days: int = Path(..., ge=1, le=90, description="Number of days to check for expiration"),
+    pagination: PaginationParams = Depends(get_pagination_params),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get blood units expiring in the specified number of days.
+    Get paginated blood units expiring in the specified number of days.
     Only shows units from the blood bank associated with the current user.
     """
-    # Get the blood bank associated with the user
     blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
-    
     blood_service = BloodInventoryService(db)
-    all_expiring = await blood_service.get_expiring_blood_units(days)
     
-    # Filter to only show units from the user's blood bank
-    expiring_units = [unit for unit in all_expiring if unit.blood_bank_id == blood_bank_id]
+    result = await blood_service.get_expiring_blood_units(days, pagination)
     
-    return [
+    if isinstance(result, list):
+        # Filter by user's blood bank
+        filtered_units = [unit for unit in result if unit.blood_bank_id == blood_bank_id]
+        
+        detailed_items = [
+            BloodInventoryDetailResponse(
+                **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
+                blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
+                added_by_name=unit.added_by.name if unit.added_by else None
+            )
+            for unit in filtered_units
+        ]
+        
+        return PaginatedResponse(
+            items=detailed_items,
+            total_items=len(detailed_items),
+            total_pages=1,
+            current_page=1,
+            page_size=len(detailed_items),
+            has_next=False,
+            has_prev=False
+        )
+    
+    # Filter paginated result by user's blood bank
+    filtered_items = [unit for unit in result.items if unit.blood_bank_id == blood_bank_id]
+    
+    detailed_items = [
         BloodInventoryDetailResponse(
             **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
             blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
             added_by_name=unit.added_by.name if unit.added_by else None
         )
-        for unit in expiring_units
+        for unit in filtered_items
     ]
+    
+    return PaginatedResponse(
+        items=detailed_items,
+        total_items=len(detailed_items),
+        total_pages=(len(detailed_items) + pagination.page_size - 1) // pagination.page_size,
+        current_page=pagination.page,
+        page_size=pagination.page_size,
+        has_next=pagination.page * pagination.page_size < len(detailed_items),
+        has_prev=pagination.page > 1
+    )
+
+
+@router.get("/statistics/overview", response_model=InventoryStatistics)
+async def get_inventory_statistics(
+    blood_bank_id: Optional[UUID] = Query(None, description="Filter statistics by blood bank"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get comprehensive inventory statistics.
+    If blood_bank_id is not provided, uses the current user's blood bank.
+    """
+    if not blood_bank_id:
+        blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
+    
+    blood_service = BloodInventoryService(db)
+    stats = await blood_service.get_inventory_statistics(blood_bank_id)
+    
+    return InventoryStatistics(**stats)
+
+
+@router.get("/export/csv")
+async def export_inventory_csv(
+    blood_bank_id: Optional[UUID] = Query(None, description="Filter by blood bank"),
+    blood_type: Optional[str] = Query(None, description="Filter by blood type"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Export blood inventory data as CSV.
+    Supports filtering and is optimized for large datasets.
+    """
+    from fastapi.responses import StreamingResponse
+    import csv
+    import io
+    
+    if not blood_bank_id:
+        blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
+    
+    blood_service = BloodInventoryService(db)
+    
+    # Get all units (without pagination for export)
+    if blood_type:
+        units = await blood_service.get_blood_units_by_type(blood_type)
+    else:
+        units = await blood_service.get_blood_units_by_bank(blood_bank_id)
+    
+    # Filter by blood bank if needed
+    if blood_bank_id:
+        units = [unit for unit in units if unit.blood_bank_id == blood_bank_id]
+    
+    # Create CSV content
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Write header
+    writer.writerow([
+        'ID', 'Blood Product', 'Blood Type', 'Quantity', 'Expiry Date',
+        'Blood Bank', 'Added By', 'Created At', 'Updated At'
+    ])
+    
+    # Write data
+    for unit in units:
+        writer.writerow([
+            str(unit.id),
+            unit.blood_product,
+            unit.blood_type,
+            unit.quantity,
+            unit.expiry_date.isoformat(),
+            unit.blood_bank.blood_bank_name if unit.blood_bank else '',
+            unit.added_by.name if unit.added_by else '',
+            unit.created_at.isoformat(),
+            unit.updated_at.isoformat()
+        ])
+    
+    output.seek(0)
+    
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode('utf-8')),
+        media_type='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=blood_inventory.csv'}
+    )

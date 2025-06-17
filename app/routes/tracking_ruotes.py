@@ -5,7 +5,7 @@ from app.schemas.tracking_schema import (
     TrackStateCreate,
     TrackStateResponse,
     TrackStateDetailResponse,
-    TrackStateStatus
+    # TrackStateStatus
 )
 from app.services.tracking_service import TrackStateService
 from app.models.user import User
@@ -71,9 +71,9 @@ async def get_track_state(
     
     return response
 
-@router.get("/distribution/{distribution_id}", response_model=List[TrackStateDetailResponse])
+@router.get("/distribution/{tracking_number}", response_model=List[TrackStateDetailResponse])
 async def get_track_states_for_distribution(
-    distribution_id: UUID = Path(..., description="The ID of the distribution to get states for"),
+    tracking_number: str = Path(..., description="The ID of the distribution to get states for"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -81,7 +81,7 @@ async def get_track_states_for_distribution(
     Get all tracking states for a specific blood distribution.
     """
     track_service = TrackStateService(db)
-    track_states = await track_service.get_track_states_for_distribution(distribution_id)
+    track_states = await track_service.get_track_states_for_distribution(tracking_number)
     
     # Add authorization check here - verify user has access to this distribution
     

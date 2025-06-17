@@ -25,7 +25,7 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 assert SECRET_KEY, "SECRET_KEY is not set in the .env file"
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 120
 
 def get_password_hash(password: str) -> str:
     """Hash a plaintext password using bcrypt"""

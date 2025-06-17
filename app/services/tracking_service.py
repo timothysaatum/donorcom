@@ -2,10 +2,13 @@ from typing import List, Optional
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from app.models.tracking_model import TrackState, TrackStateStatus
-from app.models.user import User
-from app.schemas.tracking_schema import TrackStateCreate, TrackStateResponse
-from datetime import datetime
+from sqlalchemy.orm import selectinload
+from app.models.tracking_model import TrackState#, TrackStateStatus
+from app.models.distribution import BloodDistribution
+# from app.models.user import User
+from app.schemas.tracking_schema import TrackStateCreate#, TrackStateResponse
+# from datetime import datetime
+
 
 class TrackStateService:
     def __init__(self, db: AsyncSession):
@@ -35,11 +38,13 @@ class TrackStateService:
         return result.scalar_one_or_none()
 
 
-    async def get_track_states_for_distribution(self, distribution_id: UUID) -> List[TrackState]:
-        """Get all tracking states for a specific distribution"""
+    async def get_track_states_for_distribution(self, tracking_number: str) -> List[TrackState]:
+        """Get all tracking states for a specific distribution using tracking number"""
         result = await self.db.execute(
             select(TrackState)
-            .where(TrackState.blood_distribution_id == distribution_id)
+            .join(TrackState.blood_distribution)
+            .where(BloodDistribution.tracking_number == tracking_number)
+            .options(selectinload(TrackState.created_by))  # Optional: eager-load related user
             .order_by(TrackState.timestamp.desc())
         )
         return result.scalars().all()

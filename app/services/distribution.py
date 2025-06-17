@@ -11,6 +11,11 @@ import string
 from app.models.distribution import BloodDistribution, BloodDistributionStatus
 from app.models.inventory import BloodInventory
 from app.schemas.distribution import BloodDistributionCreate, BloodDistributionUpdate, DistributionStats
+from app.models.tracking_model import TrackState
+from app.schemas.tracking_schema import TrackStateStatus
+
+
+
 
 def generate_tracking_number(length=12):
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
@@ -82,7 +87,19 @@ class BloodDistributionService:
           
         # Load relationships  
         await self.db.refresh(new_distribution, attribute_names=["dispatched_from", "dispatched_to", "created_by", "inventory_item"])  
-          
+
+
+        track_state = TrackState(
+            blood_distribution_id=new_distribution.id,
+            status=TrackStateStatus.dispatched,
+            location=new_distribution.dispatched_from.blood_bank_name,
+            notes="Blood issued, in transit",
+            created_by_id=created_by_id
+        )
+
+        self.db.add(track_state)
+        await self.db.commit()
+
         return new_distribution  
 
     async def get_distribution(self, distribution_id: UUID) -> Optional[BloodDistribution]:  
