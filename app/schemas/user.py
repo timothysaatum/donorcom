@@ -69,3 +69,9 @@ class AuthResponse(BaseModel):
 class LoginSchema(BaseModel):
     email: str
     password: str
+    
+    
+# class StaffResponse(UserResponse):
+	
+# 	class Config:
+# 		orm_mode = True

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response
-from app.schemas.user import UserCreate, UserResponse, UserUpdate, UserWithFacility
+from app.schemas.user import (UserCreate, UserResponse, UserUpdate, UserWithFacility) 
 from app.services.user_service import UserService
 from app.dependencies import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -134,7 +134,7 @@ async def create_staff_user(
     return created_user
 
 
-@router.get("/staff", response_model=DataWrapper[list[UserResponse]], summary="Get all staff users")
+@router.get("/staff", response_model=list[UserResponse], summary="Get all staff users")
 async def get_all_staff_users(
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
@@ -149,4 +149,4 @@ async def get_all_staff_users(
     user_service = UserService(db)
     staff_users = await user_service.get_all_staff_users(current_user.facility.id)
 
-    return {"data": staff_users}
+    return staff_users
