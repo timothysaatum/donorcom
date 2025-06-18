@@ -166,10 +166,10 @@ class BloodInventoryService:
         ) -> BloodInventory:
 
         """Create a new blood unit inventory entry"""
-        expiry_date = date.today() + timedelta(days=blood_data.expires_in_days)
+        # expiry_date = date.today() + timedelta(days=blood_data.expires_in_days)
         new_blood_unit = BloodInventory(
-            **blood_data.model_dump(exclude={"expires_in_days"}),
-            expiry_date=expiry_date,
+            **blood_data.model_dump(),#exclude={"expires_in_days"}),
+            # expiry_date=expiry_date,
             blood_bank_id=blood_bank_id,
             added_by_id=added_by_id
         )
