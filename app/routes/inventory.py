@@ -1,14 +1,6 @@
 # from fastapi import APIRouter, Depends, HTTPException, status, Path
 # from sqlalchemy.ext.asyncio import AsyncSession
-# from app.schemas.inventory import BloodInventoryCreate, BloodInventoryResponse, BloodInventoryUpdate, BloodInventoryDetailResponse
-# from app.services.inventory import BloodInventoryService
-# from app.models.user import User
-# from app.utils.security import get_current_user
-# from app.dependencies import get_db
-# from uuid import UUID
-# from typing import List, Optional
-# from sqlalchemy.future import select
-# from app.models.blood_bank import BloodBank
+#
 
 
 # router = APIRouter(
