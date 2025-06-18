@@ -7,9 +7,8 @@ from enum import Enum as PyEnum
 from datetime import datetime
 
 class TrackStateStatus(PyEnum):
-    
+
     dispatched = "dispatched"
-    pending_receive = "pending receive"
     received = "received"
     returned = "returned"
     rejected = "rejected"

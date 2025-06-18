@@ -68,7 +68,8 @@ def create_application() -> FastAPI:
             f"{settings.API_PREFIX}/users/me",
             f"{settings.API_PREFIX}/blood-inventory",
             f"{settings.API_PREFIX}/blood-distribution",
-            f"{settings.API_PREFIX}/track-states"
+            f"{settings.API_PREFIX}/track-states",
+            f"{settings.API_PREFIX}/users/staff",
         ]
 
         for path_key, path_item in openapi_schema["paths"].items():

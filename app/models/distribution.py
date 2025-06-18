@@ -7,10 +7,8 @@ from enum import Enum as PyEnum
 
 
 class BloodDistributionStatus(PyEnum):
-    pending = "pending"
-    in_transit = "in transit"
-    delivered = "delivered"
-    cancelled = "cancelled"
+    pending_receive = "pending recieve" # Initial status when distribution is created
+    in_transit = "in transit"  # When blood is being transported
     returned = "returned"  # Added for cases where blood is returned to inventory
 
 
@@ -36,7 +34,7 @@ class BloodDistribution(Base):
     status = Column(
         Enum(BloodDistributionStatus, name="distribution_status"), 
         nullable=False, 
-        default=BloodDistributionStatus.pending
+        default=BloodDistributionStatus.pending_receive
     )
     date_dispatched = Column(DateTime, nullable=True)
     date_delivered = Column(DateTime, nullable=True)

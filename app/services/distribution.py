@@ -132,11 +132,11 @@ class BloodDistributionService:
         if 'status' in update_dict:  
             new_status = update_dict['status']  
             old_status = distribution.status  
-              
+
             # Auto-update date_dispatched when status changes to in_transit  
             if new_status == BloodDistributionStatus.in_transit and old_status == BloodDistributionStatus.pending:  
                 distribution.date_dispatched = datetime.now()  
-              
+
             # Auto-update date_delivered when status changes to delivered  
             if new_status == BloodDistributionStatus.delivered and old_status != BloodDistributionStatus.delivered:  
                 distribution.date_delivered = datetime.now()  

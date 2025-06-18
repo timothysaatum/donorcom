@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Enum, DateTime, Boolean
+from sqlalchemy import Column, String, Enum, DateTime, Boolean, ForeignKey
 from app.db.base import Base
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -21,7 +21,21 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     status = Column(Boolean, default=True)
 
-    facility = relationship("Facility", back_populates="facility_manager", uselist=False)
+    facility_id = Column(UUID(as_uuid=True), ForeignKey("facilities.id", ondelete="SET NULL"), nullable=True)
+    # facility = relationship("Facility", back_populates="facility_manager", uselist=False)
+    work_facility = relationship(
+        "Facility",
+        back_populates="users",
+        foreign_keys=[facility_id]
+    )
+
+    # Admin -> facility they manage (one-to-one)
+    facility = relationship(
+        "Facility",
+        back_populates="facility_manager",
+        foreign_keys="Facility.facility_manager_id",
+        uselist=False
+    )
     blood_bank = relationship("BloodBank", back_populates="manager_user", uselist=False)
     added_blood_units = relationship("BloodInventory", back_populates="added_by")
     is_verified = Column(Boolean, default=False)

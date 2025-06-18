@@ -6,7 +6,7 @@ from app.models.health_facility import Facility
 from app.schemas.user import UserCreate, UserWithFacility, UserUpdate
 from app.utils.security import get_password_hash, verify_password, create_access_token, create_verification_token
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 from fastapi import BackgroundTasks
 from app.utils.email_verification import send_verification_email
@@ -18,7 +18,12 @@ class UserService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create_user(self, user_data: UserCreate, background_tasks: BackgroundTasks = None) -> User:
+    async def create_user(
+            self, user_data: UserCreate, 
+            background_tasks: BackgroundTasks = None,
+            facility_id: Optional[UUID] = None
+
+            ) -> User:
         result = await self.db.execute(select(User).where(User.email == user_data.email))
         existing_user = result.scalar_one_or_none()
 
@@ -34,7 +39,9 @@ class UserService:
             password=hashed_password,
             role=user_data.role,
             phone=user_data.phone,
-            verification_token=verification_token
+            verification_token=verification_token,
+            facility_id=facility_id if facility_id else None,
+            
         )
 
         self.db.add(created_user)
@@ -46,7 +53,6 @@ class UserService:
             background_tasks.add_task(send_verification_email, created_user.email, verification_token)
 
         return created_user
-
 
     async def authenticate_user(self, email: str, password: str) -> dict:
 
@@ -83,7 +89,6 @@ class UserService:
         result = await self.db.execute(select(User).where(User.id == user_id))
         return result.scalar_one_or_none()
     
-
     async def update_user(self, user_id: UUID, user_data: UserUpdate) -> User:
         user = await self.get_user(user_id)
 
@@ -99,7 +104,6 @@ class UserService:
         await self.db.refresh(user)
         return user
     
-
     async def delete_user(self, user_id: UUID) -> None:
         user = await self.get_user(user_id)
 
@@ -108,3 +112,17 @@ class UserService:
 
         await self.db.delete(user)
         await self.db.commit()
+
+    async def get_all_staff_users(self, facility_id: UUID) -> List[User]:
+        """
+        Get all staff and lab manager users for a given facility.
+        """
+        result = await self.db.execute(
+            select(User)
+            .options(selectinload(User.facility))
+            .where(
+                User.facility_id == facility_id,
+                User.role.in_(["staff"])
+            )
+        )
+        return result.scalars().all()

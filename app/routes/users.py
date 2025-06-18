@@ -100,3 +100,53 @@ async def delete_account(
 ):
     user_service = UserService(db)
     await user_service.delete_user(current_user.id)
+
+
+@router.post("/staff/create", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+async def create_staff_user(
+    user_data: UserCreate,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Lab Managers or Facility Admins create staff/lab manager accounts.
+    Automatically assigns them to the creator's facility.
+    """
+    if current_user.role not in ["facility_administrator", "lab_manager"]:
+        raise HTTPException(status_code=403, detail="Only lab managers or facility admins can create staff.")
+
+    if user_data.role not in ["staff", "lab_manager"]:
+        raise HTTPException(status_code=400, detail="You can only assign staff or lab_manager roles.")
+
+    # Make sure the current user has a facility
+    if not current_user.facility:
+        raise HTTPException(status_code=400, detail="You are not assigned to any facility.")
+
+    # Inject facility_id into user creation logic
+    user_service = UserService(db)
+    created_user = await user_service.create_user(
+        user_data=user_data,
+        background_tasks=background_tasks,
+        facility_id=current_user.facility.id
+    )
+
+    return created_user
+
+
+@router.get("/staff", response_model=DataWrapper[list[UserResponse]], summary="Get all staff users")
+async def get_all_staff_users(
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+    ):
+    """
+    Get all staff users in the current user's facility.
+    Only accessible by facility admins or lab managers.
+    """
+    if current_user.role not in ["facility_administrator", "lab_manager"]:
+        raise HTTPException(status_code=403, detail="Only lab managers or facility admins can view staff.")
+
+    user_service = UserService(db)
+    staff_users = await user_service.get_all_staff_users(current_user.facility.id)
+
+    return {"data": staff_users}

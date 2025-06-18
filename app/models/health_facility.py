@@ -15,7 +15,20 @@ class Facility(Base):
     facility_name = Column(String(100), nullable=False)
 
     facility_manager_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
-    facility_manager = relationship("User", back_populates="facility", uselist=False)
+    # facility_manager = relationship("User", back_populates="facility", uselist=False)
+    facility_manager = relationship(
+        "User",
+        back_populates="facility",
+        foreign_keys=[facility_manager_id],
+        uselist=False
+    )
+
+    # Staff/lab_manager link (one-to-many)
+    users = relationship(
+        "User",
+        back_populates="work_facility",
+        foreign_keys="[User.facility_id]"
+    )
 
     blood_bank = relationship("BloodBank", back_populates="facility", uselist=False)
 

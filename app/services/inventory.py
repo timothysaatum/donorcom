@@ -138,7 +138,7 @@ from app.schemas.inventory import (
     PaginatedResponse
 )
 from typing import Optional, List, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import asyncio
 from contextlib import asynccontextmanager
 
@@ -158,13 +158,18 @@ class BloodInventoryService:
             await self.db.rollback()
             raise e
 
-    async def create_blood_unit(self, 
-                               blood_data: BloodInventoryCreate, 
-                               blood_bank_id: UUID, 
-                               added_by_id: UUID) -> BloodInventory:
+    async def create_blood_unit(
+            self, 
+            blood_data: BloodInventoryCreate, 
+            blood_bank_id: UUID, 
+            added_by_id: UUID
+        ) -> BloodInventory:
+
         """Create a new blood unit inventory entry"""
+        expiry_date = date.today() + timedelta(days=blood_data.expires_in_days)
         new_blood_unit = BloodInventory(
-            **blood_data.model_dump(),
+            **blood_data.model_dump(exclude={"expires_in_days"}),
+            expiry_date=expiry_date,
             blood_bank_id=blood_bank_id,
             added_by_id=added_by_id
         )
@@ -178,10 +183,12 @@ class BloodInventoryService:
         
         return new_blood_unit
 
-    async def batch_create_blood_units(self,
-                                     blood_units_data: List[BloodInventoryCreate],
-                                     blood_bank_id: UUID,
-                                     added_by_id: UUID) -> List[BloodInventory]:
+    async def batch_create_blood_units(
+            self,
+            blood_units_data: List[BloodInventoryCreate],
+            blood_bank_id: UUID,
+            added_by_id: UUID
+        ) -> List[BloodInventory]:
         """
         Batch create multiple blood units with optimized performance
         Uses bulk operations and chunked processing for large datasets
@@ -219,8 +226,10 @@ class BloodInventoryService:
         
         return created_units
 
-    async def batch_update_blood_units(self,
-                                     updates: List[Dict[str, Any]]) -> List[BloodInventory]:
+    async def batch_update_blood_units(
+            self,
+            updates: List[Dict[str, Any]]
+        ) -> List[BloodInventory]:
         """
         Batch update multiple blood units
         Each update dict should contain 'id' and the fields to update
@@ -231,8 +240,12 @@ class BloodInventoryService:
         updated_units = []
         
         async with self.batch_transaction():
-            for update_batch in [updates[i:i + self.batch_size] 
-                               for i in range(0, len(updates), self.batch_size)]:
+            for update_batch in [
+                
+                updates[i:i + self.batch_size] 
+                for i in range(0, len(updates), self.batch_size)
+                
+                ]:
                 
                 # Get all units to update in this batch
                 unit_ids = [update['id'] for update in update_batch]
@@ -268,8 +281,12 @@ class BloodInventoryService:
         deleted_count = 0
         
         async with self.batch_transaction():
-            for batch_ids in [unit_ids[i:i + self.batch_size] 
-                            for i in range(0, len(unit_ids), self.batch_size)]:
+            for batch_ids in [
+
+                unit_ids[i:i + self.batch_size] 
+                for i in range(0, len(unit_ids), self.batch_size)
+                
+                ]:
                 
                 # Delete in batches
                 result = await self.db.execute(
@@ -321,14 +338,18 @@ class BloodInventoryService:
         await self.db.commit()
         return True
 
-    async def get_paginated_blood_units(self,
-                                      pagination: PaginationParams,
-                                      blood_bank_id: Optional[UUID] = None,
-                                      blood_type: Optional[str] = None,
-                                      blood_product: Optional[str] = None,
-                                      expiry_date_from: Optional[datetime] = None,
-                                      expiry_date_to: Optional[datetime] = None,
-                                      search_term: Optional[str] = None) -> PaginatedResponse[BloodInventory]:
+    async def get_paginated_blood_units(
+            
+            self,
+            pagination: PaginationParams,
+            blood_bank_id: Optional[UUID] = None,
+            blood_type: Optional[str] = None,
+            blood_product: Optional[str] = None,
+            expiry_date_from: Optional[datetime] = None,
+            expiry_date_to: Optional[datetime] = None,
+            search_term: Optional[str] = None
+
+        ) -> PaginatedResponse[BloodInventory]:
         """
         Get paginated blood units with comprehensive filtering and sorting
         """
@@ -408,9 +429,11 @@ class BloodInventoryService:
             has_prev=has_prev
         )
 
-    async def get_blood_units_by_bank(self, 
-                                    blood_bank_id: UUID,
-                                    pagination: Optional[PaginationParams] = None) -> List[BloodInventory] | PaginatedResponse[BloodInventory]:
+    async def get_blood_units_by_bank(
+            self, 
+            blood_bank_id: UUID,
+            pagination: Optional[PaginationParams] = None
+        ) -> List[BloodInventory] | PaginatedResponse[BloodInventory]:
         """Get blood units by bank with optional pagination"""
         if pagination:
             return await self.get_paginated_blood_units(
