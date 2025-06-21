@@ -38,4 +38,8 @@ class BloodRequest(Base):
     requester = relationship("User", foreign_keys=[requester_id])
     fulfilled_by = relationship("User", foreign_keys=[fulfilled_by_id])
     blood_bank = relationship("BloodBank")
+    patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id", ondelete="SET NULL"), nullable=True)
     patient = relationship("Patient", back_populates="blood_requests")
+    
+    def __repr__(self):
+        return f"<BloodRequest(id={self.id}, requester_id={self.requester_id}, status={self.status})>"

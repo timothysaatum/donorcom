@@ -15,7 +15,7 @@ router = APIRouter(
 )
 
 
-@router.post("/requests", response_model=BloodRequestResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=BloodRequestResponse, status_code=status.HTTP_201_CREATED)
 async def create_blood_request(
     request_data: BloodRequestCreate,
     db: AsyncSession = Depends(get_db),
@@ -25,7 +25,7 @@ async def create_blood_request(
     return await service.create_request(request_data, requester_id=current_user.id)
 
 
-@router.get("/requests", response_model=List[BloodRequestResponse])
+@router.get("/", response_model=List[BloodRequestResponse])
 async def list_my_requests(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -34,7 +34,7 @@ async def list_my_requests(
     return await service.list_requests_by_user(user_id=current_user.id)
 
 
-@router.get("/requests/{request_id}", response_model=BloodRequestResponse)
+@router.get("/{request_id}", response_model=BloodRequestResponse)
 async def get_blood_request(
     request_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -47,7 +47,7 @@ async def get_blood_request(
     return request
 
 
-@router.patch("/requests/{request_id}", response_model=BloodRequestResponse)
+@router.patch("/{request_id}", response_model=BloodRequestResponse)
 async def update_blood_request(
     request_id: UUID,
     update_data: BloodRequestUpdate,
@@ -58,7 +58,7 @@ async def update_blood_request(
     return await service.update_request(request_id, update_data)
 
 
-@router.delete("/requests/{request_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{request_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_blood_request(
     request_id: UUID,
     db: AsyncSession = Depends(get_db),

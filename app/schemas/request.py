@@ -16,7 +16,7 @@ class BloodRequestCreate(BaseModel):
     blood_product: str
     quantity_requested: int
     blood_bank_id: UUID
-    patient_id: UUID
+    # patient_id: UUID | None = None
     notes: str | None = None
 
 
@@ -36,6 +36,6 @@ class BloodRequestUpdate(BaseModel):
     blood_product: str | None = None
     quantity_requested: int | None = None
     blood_bank_id: UUID | None = None
-    patient_id: UUID | None = None
+    # patient_id: UUID | None = None
     notes: str | None = None
     status: RequestStatus | None = None
