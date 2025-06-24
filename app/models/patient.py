@@ -17,4 +17,4 @@ class Patient(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    blood_requests = relationship("BloodRequest", back_populates="patient")
+    # blood_requests = relationship("BloodRequest", back_populates="patient")

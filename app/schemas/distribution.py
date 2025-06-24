@@ -22,7 +22,7 @@ class BloodDistributionBase(BaseModel):
 class BloodDistributionCreate(BloodDistributionBase):
     blood_product_id: Optional[UUID4] = Field(None, description="ID of the specific blood inventory item")
     dispatched_to_id: UUID4 = Field(..., description="ID of the facility receiving the blood")
-    recipient_name: str = Field(..., description="name of patient")
+    # recipient_name: str = Field(..., description="name of patient")
 
 
 class BloodDistributionUpdate(BaseModel):

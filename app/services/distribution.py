@@ -70,7 +70,7 @@ class BloodDistributionService:
             blood_product_id=distribution_data.blood_product_id,  
             dispatched_from_id=blood_bank_id,  
             dispatched_to_id=distribution_data.dispatched_to_id,
-            recipient_name=distribution_data.recipient_name, 
+            # recipient_name=distribution_data.recipient_name, 
             created_by_id=created_by_id,  
             blood_product=blood_product,  
             blood_type=blood_type,  

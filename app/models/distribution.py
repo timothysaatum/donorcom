@@ -28,7 +28,7 @@ class BloodDistribution(Base):
     blood_product = Column(String(50), nullable=False)  # e.g., "Whole Blood", "Plasma", "Platelets"
     blood_type = Column(String(10), nullable=False)     # e.g., "A+", "B-", "O+", "AB-"
     quantity = Column(Integer, nullable=False)          # Units of blood
-    recipient_name = Column(String(200), nullable=False)
+    # recipient_name = Column(String(200), nullable=False)
     
     # Tracking details
     status = Column(

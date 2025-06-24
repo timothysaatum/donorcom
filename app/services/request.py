@@ -22,7 +22,7 @@ class BloodRequestService:
 
     async def get_request(self, request_id: UUID) -> Optional[BloodRequest]:
         result = await self.db.execute(
-            select(BloodRequest).options(joinedload(BloodRequest.patient)).where(BloodRequest.id == request_id)
+            select(BloodRequest).where(BloodRequest.id == request_id)
         )
         return result.scalar_one_or_none()
 
@@ -46,7 +46,6 @@ class BloodRequestService:
     async def list_requests_by_user(self, user_id: UUID) -> List[BloodRequest]:
         result = await self.db.execute(
             select(BloodRequest)
-            .options(joinedload(BloodRequest.patient))
             .where(BloodRequest.requester_id == user_id)
             .order_by(BloodRequest.created_at.desc())
         )
@@ -55,7 +54,6 @@ class BloodRequestService:
     async def list_requests_by_status(self, status: RequestStatus) -> List[BloodRequest]:
         result = await self.db.execute(
             select(BloodRequest)
-            .options(joinedload(BloodRequest.patient))
             .where(BloodRequest.status == status)
             .order_by(BloodRequest.created_at.desc())
         )
