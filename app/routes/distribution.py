@@ -87,7 +87,7 @@ async def create_distribution(
         **BloodDistributionResponse.model_validate(new_distribution, from_attributes=True).model_dump(),
         dispatched_from_name=new_distribution.dispatched_from.blood_bank_name if new_distribution.dispatched_from else None,
         dispatched_to_name=new_distribution.dispatched_to.facility_name if new_distribution.dispatched_to else None,
-        created_by_name=new_distribution.created_by.name if new_distribution.created_by else None
+        created_by_name=new_distribution.created_by.last_name if new_distribution.created_by else None
     )
     
     return response
@@ -126,7 +126,7 @@ async def get_distribution(
         **BloodDistributionResponse.model_validate(distribution, from_attributes=True).model_dump(),
         dispatched_from_name=distribution.dispatched_from.blood_bank_name if distribution.dispatched_from else None,
         dispatched_to_name=distribution.dispatched_to.facility_name if distribution.dispatched_to else None,
-        created_by_name=distribution.created_by.name if distribution.created_by else None
+        created_by_name=distribution.created_by.last_name if distribution.created_by else None
     )
     
     return response
@@ -172,7 +172,7 @@ async def list_distributions(
             **BloodDistributionResponse.model_validate(dist, from_attributes=True).model_dump(),
             dispatched_from_name=dist.dispatched_from.blood_bank_name if dist.dispatched_from else None,
             dispatched_to_name=dist.dispatched_to.facility_name if dist.dispatched_to else None,
-            created_by_name=dist.created_by.name if dist.created_by else None
+            created_by_name=dist.created_by.last_name if dist.created_by else None
         )
         for dist in filtered_distributions
     ]
@@ -222,7 +222,7 @@ async def update_distribution(
         **BloodDistributionResponse.model_validate(updated_distribution, from_attributes=True).model_dump(),
         dispatched_from_name=updated_distribution.dispatched_from.blood_bank_name if updated_distribution.dispatched_from else None,
         dispatched_to_name=updated_distribution.dispatched_to.facility_name if updated_distribution.dispatched_to else None,
-        created_by_name=updated_distribution.created_by.name if updated_distribution.created_by else None
+        created_by_name=updated_distribution.created_by.last_name if updated_distribution.created_by else None
     )
     
     return response

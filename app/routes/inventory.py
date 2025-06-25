@@ -241,7 +241,7 @@ async def get_blood_unit(
     response = BloodInventoryDetailResponse(
         **BloodInventoryResponse.model_validate(blood_unit, from_attributes=True).model_dump(),
         blood_bank_name=blood_unit.blood_bank.blood_bank_name if blood_unit.blood_bank else None,
-        added_by_name=blood_unit.added_by.name if blood_unit.added_by else None
+        added_by_name=blood_unit.added_by.last_name if blood_unit.added_by else None
     )
     
     return response
@@ -279,7 +279,7 @@ async def list_blood_units_paginated(
         BloodInventoryDetailResponse(
             **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
             blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
-            added_by_name=unit.added_by.name if unit.added_by else None
+            added_by_name=unit.added_by.last_name if unit.added_by else None
         )
         for unit in result.items
     ]
@@ -335,7 +335,7 @@ async def advanced_search_blood_units(
         BloodInventoryDetailResponse(
             **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
             blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
-            added_by_name=unit.added_by.name if unit.added_by else None
+            added_by_name=unit.added_by.last_name if unit.added_by else None
         )
         for unit in result.items
     ]
@@ -429,7 +429,7 @@ async def get_blood_units_by_bank_paginated(
             BloodInventoryDetailResponse(
                 **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
                 blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
-                added_by_name=unit.added_by.name if unit.added_by else None
+                added_by_name=unit.added_by.last_name if unit.added_by else None
             )
             for unit in result
         ]
@@ -449,7 +449,7 @@ async def get_blood_units_by_bank_paginated(
         BloodInventoryDetailResponse(
             **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
             blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
-            added_by_name=unit.added_by.name if unit.added_by else None
+            added_by_name=unit.added_by.last_name if unit.added_by else None
         )
         for unit in result.items
     ]
@@ -489,7 +489,7 @@ async def get_expiring_blood_units_paginated(
             BloodInventoryDetailResponse(
                 **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
                 blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
-                added_by_name=unit.added_by.name if unit.added_by else None
+                added_by_name=unit.added_by.last_name if unit.added_by else None
             )
             for unit in filtered_units
         ]
@@ -511,7 +511,7 @@ async def get_expiring_blood_units_paginated(
         BloodInventoryDetailResponse(
             **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
             blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
-            added_by_name=unit.added_by.name if unit.added_by else None
+            added_by_name=unit.added_by.last_name if unit.added_by else None
         )
         for unit in filtered_items
     ]
@@ -595,7 +595,7 @@ async def export_inventory_csv(
             unit.quantity,
             unit.expiry_date.isoformat(),
             unit.blood_bank.blood_bank_name if unit.blood_bank else '',
-            unit.added_by.name if unit.added_by else '',
+            unit.added_by.last_name if unit.added_by else '',
             unit.created_at.isoformat(),
             unit.updated_at.isoformat()
         ])

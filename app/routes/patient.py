@@ -53,8 +53,7 @@ async def update_patient(
     patient_id: UUID,
     update_data: PatientUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
+    current_user: User = Depends(get_current_user)):
     service = PatientService(db)
     return await service.update_patient(patient_id, update_data)
 

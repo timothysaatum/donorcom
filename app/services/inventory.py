@@ -133,12 +133,11 @@ from app.models.inventory import BloodInventory
 from app.schemas.inventory import (
     BloodInventoryCreate, 
     BloodInventoryUpdate, 
-    BloodInventoryBatchCreate,
     PaginationParams,
     PaginatedResponse
 )
 from typing import Optional, List, Dict, Any
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 import asyncio
 from contextlib import asynccontextmanager
 
@@ -450,9 +449,11 @@ class BloodInventoryService:
         )
         return result.scalars().all()
     
-    async def get_expiring_blood_units(self, 
-                                     days: int = 7,
-                                     pagination: Optional[PaginationParams] = None) -> List[BloodInventory] | PaginatedResponse[BloodInventory]:
+    async def get_expiring_blood_units(
+            self, 
+            days: int = 7,
+            pagination: Optional[PaginationParams] = None
+            ) -> List[BloodInventory] | PaginatedResponse[BloodInventory]:
         """Get blood units expiring in the next X days with optional pagination"""
         expiry_threshold = datetime.now().date() + timedelta(days=days)
         

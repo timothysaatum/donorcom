@@ -38,7 +38,7 @@ async def create_track_state(
     # Format the response with additional details
     response = TrackStateDetailResponse(
         **TrackStateResponse.model_validate(new_track, from_attributes=True).model_dump(),
-        created_by_name=current_user.name
+        created_by_name=current_user.last_name
     )
     
     return response
@@ -66,7 +66,7 @@ async def get_track_state(
     # Format response
     response = TrackStateDetailResponse(
         **TrackStateResponse.model_validate(track_state, from_attributes=True).model_dump(),
-        created_by_name=track_state.created_by.name if track_state.created_by else None
+        created_by_name=track_state.created_by.last_name if track_state.created_by else None
     )
     
     return response
@@ -88,7 +88,7 @@ async def get_track_states_for_distribution(
     return [
         TrackStateDetailResponse(
             **TrackStateResponse.model_validate(state, from_attributes=True).model_dump(),
-            created_by_name=state.created_by.name if state.created_by else None
+            created_by_name=state.created_by.last_name if state.created_by else None
         )
         for state in track_states
     ]
@@ -115,7 +115,7 @@ async def get_latest_track_state(
     
     response = TrackStateDetailResponse(
         **TrackStateResponse.model_validate(track_state, from_attributes=True).model_dump(),
-        created_by_name=track_state.created_by.name if track_state.created_by else None
+        created_by_name=track_state.created_by.last_name if track_state.created_by else None
     )
     
     return response
