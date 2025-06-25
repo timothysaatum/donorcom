@@ -10,7 +10,8 @@ from app.schemas.facility_schema import FacilityWithBloodBank
 class UserBase(BaseModel):
     
     email: EmailStr
-    name: str = Field(..., min_length = 5, max_length = 50)
+    first_name: str = Field(..., min_length = 5, max_length = 50)
+    last_name: str = Field(..., min_length = 5, max_length = 50)
     phone: Optional[str] = Field(..., min_length = 10, max_length = 14)
 
 
@@ -42,7 +43,8 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
 
     email: Optional[EmailStr] = None
-    name: str = Field(None, min_length = 5, max_length = 50)
+    first_name: str = Field(None, min_length = 5, max_length = 50)
+    last_name: str = Field(None, min_length = 5, max_length = 50)
     phone: Optional[str] = Field(None, min_length = 10, max_length = 14)
     role: Optional[str] = Field(None, pattern = "^(facility_administrator|lab_manager|staff)$")
 

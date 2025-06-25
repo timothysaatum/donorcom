@@ -14,6 +14,7 @@ class RequestStatus(str, enum.Enum):
 
 
 class BloodRequest(Base):
+
     """Model representing a request for blood or blood products."""
 
     __tablename__ = "blood_requests"

@@ -8,6 +8,7 @@ from app.dependencies import get_db
 from app.utils.security import get_current_user
 from app.schemas.request import BloodRequestCreate, BloodRequestUpdate, BloodRequestResponse
 from app.services.request import BloodRequestService
+from app.models.request import RequestStatus
 
 router = APIRouter(
     prefix="/requests",
@@ -69,16 +70,16 @@ async def delete_blood_request(
     return {"detail": "Blood request deleted successfully"}
 
 
-# @router.get("/requests/status/{status}", response_model=List[BloodRequestResponse])
-# async def list_requests_by_status(
-#     status: str,
-#     db: AsyncSession = Depends(get_db),
-#     current_user: User = Depends(get_current_user)
-# ):
-#     service = BloodRequestService(db)
-#     try:
-#         request_status = RequestStatus(status)
-#     except ValueError:
-#         raise HTTPException(status_code=400, detail="Invalid request status")
+@router.get("/status/{status}", response_model=List[BloodRequestResponse])
+async def list_requests_by_status(
+    status: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    service = BloodRequestService(db)
+    try:
+        request_status = RequestStatus(status)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid request status")
     
-#     return await service.list_requests_by_status(request_status)
+    return await service.list_requests_by_status(request_status)

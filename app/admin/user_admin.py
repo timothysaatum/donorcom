@@ -6,7 +6,8 @@ class UserAdmin(ModelView, model=User):
     icon = "fa-solid fa-user"
     
     form_columns = [
-        User.name,
+        User.first_name,
+        User.last_name,
         User.email,
         User.phone,
         User.role,
@@ -20,7 +21,8 @@ class UserAdmin(ModelView, model=User):
     
     column_list = [
         User.id,
-        User.name,
+        User.first_name,
+        User.last_name,
         User.email,
         User.phone,
         User.role,

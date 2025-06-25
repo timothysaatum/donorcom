@@ -35,7 +35,8 @@ class UserService:
 
         created_user = User(
             email=user_data.email,
-            name=user_data.name,
+            first_name=user_data.first_name,
+            last_name=user_data.last_name,
             password=hashed_password,
             role=user_data.role,
             phone=user_data.phone,
@@ -122,7 +123,7 @@ class UserService:
             .options(selectinload(User.facility))
             .where(
                 User.facility_id == facility_id,
-                User.role.in_(["staff"])
+                User.role.in_(["staff", "lab_manager"])
             )
         )
         return result.scalars().all()
