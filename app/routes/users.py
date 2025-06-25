@@ -10,6 +10,7 @@ import os
 from app.utils.security import get_current_user
 from sqlalchemy.future import select
 from app.utils.data_wrapper import DataWrapper
+from uuid import UUID
 
 
 
@@ -82,24 +83,51 @@ async def options_me():
     return response
 
 
-@router.patch("/update-account", response_model=DataWrapper[UserResponse])
+# @router.patch("/update-account", response_model=DataWrapper[UserResponse])
+# async def update_user(
+#     user_data: UserUpdate,
+#     db: AsyncSession = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     user_service = UserService(db)
+#     updated_user = await user_service.update_user(current_user.id, user_data)
+#     return {"data": updated_user}
+@router.patch("/update-account/{user_id}", response_model=DataWrapper[UserResponse])
 async def update_user(
+    user_id: UUID,
     user_data: UserUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+    current_user: User = Depends(get_current_user),):
+    # Check if current user has permission to update this user
+    if str(current_user.id) != str(user_id) and current_user.role not in ["facility_administrator", "lab_manager"]:
+        raise HTTPException(status_code=403, detail="You can only update your own account or must be an admin/lab manager")
+    
     user_service = UserService(db)
-    updated_user = await user_service.update_user(current_user.id, user_data)
+    updated_user = await user_service.update_user(user_id, user_data)
     return {"data": updated_user}
 
 
-@router.delete("/delete-account", status_code=status.HTTP_204_NO_CONTENT)
+# @router.delete("/delete-account", status_code=status.HTTP_204_NO_CONTENT)
+# async def delete_account(
+#     db: AsyncSession = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     user_service = UserService(db)
+#     await user_service.delete_user(current_user.id)
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_account(
+    user_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
+    current_user: User = Depends(get_current_user),):
+    # Check permissions
+    if str(current_user.id) != str(user_id) and current_user.role not in ["facility_administrator", "lab_manager"]:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only delete your own account or must be an admin/lab manager"
+        )
+    
     user_service = UserService(db)
-    await user_service.delete_user(current_user.id)
+    await user_service.delete_user(user_id)
 
 
 @router.post("/staff/create", response_model=UserResponse, status_code=status.HTTP_201_CREATED)

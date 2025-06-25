@@ -96,16 +96,16 @@ class UserService:
         if not user:
             raise HTTPException(status_code=404, detail="User not Found")
 
-        if "role" in user_data.model_dump(exclude_unset=True):
-            if user.role not in ["facility_administrator", "lab_manager"]:
-                raise HTTPException(status_code=403, detail="You are not allowed to change your role")
+        # if "role" in user_data.model_dump(exclude_unset=True):
+        #     if user.role not in ["facility_administrator", "lab_manager"]:
+        #         raise HTTPException(status_code=403, detail="You are not allowed to change your role")
 
         
         update_data = user_data.model_dump(exclude_unset=True)
 
-        if "role" in update_data and user.role not in ["facility_administrator", "lab_manager"]:
-            update_data.pop("role")
-            
+        # if "role" in update_data and user.role not in ["facility_administrator", "lab_manager"]:
+        #     update_data.pop("role")
+
         for key, value in update_data.items():
             setattr(user, key, value)
 
