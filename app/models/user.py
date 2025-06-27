@@ -29,6 +29,8 @@ class User(Base):
         back_populates="users",
         foreign_keys=[facility_id]
     )
+    work_facility_id = Column(UUID(as_uuid=True), ForeignKey("facilities.id"), nullable=True)
+    # work_facility = relationship("Facility", back_populates="users", uselist=False)
 
     # Admin -> facility they manage (one-to-one)
     facility = relationship(
@@ -47,7 +49,7 @@ class User(Base):
     last_login = Column(DateTime, nullable=True)
 
     def __str__(self):
-        return f"{self.name} ({self.email})"
+        return f"{self.last_name} ({self.email})"
     
     def update_login_time(self):
         """Call this method when user logs in"""

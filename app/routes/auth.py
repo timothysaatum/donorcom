@@ -16,7 +16,7 @@ from app.dependencies import get_db
 from app.services.user_service import UserService
 from app.utils.email_verification import send_verification_email
 from app.utils.security import create_verification_token
-from app.utils.data_wrapper import DataWrapper, ResponseWrapper
+from app.utils.data_wrapper import DataWrapper
 
 # JWT and Token Configuration
 SECRET_KEY = os.getenv("SECRET_KEY")
@@ -121,6 +121,113 @@ async def login(
     return {"data": auth_response}
 
 
+# @router.get("/refresh", response_model=DataWrapper[AuthResponse])
+# async def refresh_token(
+#     response: Response,
+#     request: Request,
+#     db: AsyncSession = Depends(get_db)
+# ):
+#     """
+#     Refresh access token using the refresh token from cookies
+#     """
+#     # Get refresh token from cookies
+#     refresh_token = request.cookies.get("refresh_token")
+    
+#     if not refresh_token:
+#         raise HTTPException(
+#             status_code=401, 
+#             detail="No refresh token provided"
+#         )
+
+#     try:
+#         # Decode and validate refresh token
+#         payload = TokenManager.decode_token(refresh_token)
+        
+#         # Ensure it's a refresh token
+#         if payload.get("type") != "refresh":
+#             raise HTTPException(
+#                 status_code=401, 
+#                 detail="Invalid token type"
+#             )
+
+#         # Get user ID from token
+#         user_id_str = payload.get("sub")
+#         if not user_id_str:
+#             raise HTTPException(
+#                 status_code=401, 
+#                 detail="Invalid token"
+#             )
+
+#         user_id = UUID(user_id_str)
+
+#         # Get the user data from the database
+#         user_service = UserService(db)
+#         user = await user_service.get_user(user_id)
+        
+#         if not user:
+#             raise HTTPException(
+#                 status_code=401, 
+#                 detail="User not found"
+#             )
+
+#         # Create new access token with user data
+#         token_data = {"sub": str(user.id), "email": user.email}
+#         new_access_token = TokenManager.create_access_token(token_data)
+
+#         # Create a new refresh token (token rotation)
+#         new_refresh_token = TokenManager.create_refresh_token(user.id)
+        
+#         # Update refresh token cookie
+#         response.set_cookie(
+#             key="refresh_token", 
+#             value=new_refresh_token, 
+#             httponly=True,
+#             secure=False,
+#             samesite="lax",
+#             max_age=60 * 60 * 24 * REFRESH_TOKEN_EXPIRE_DAYS
+#         )
+
+#         # Get user data with facility and blood bank (similar to authenticate_user method)
+#         # But without password verification
+#         from sqlalchemy.orm import selectinload
+#         from app.models.health_facility import Facility
+        
+#         # Get the full user with facility and blood bank loaded
+#         result = await db.execute(
+#             select(User)
+#             .options(
+#                 selectinload(User.facility).selectinload(Facility.blood_bank)
+#             )
+#             .where(User.id == user_id)
+#         )
+#         user_with_relations = result.scalar_one_or_none()
+        
+#         # Update last login time
+#         user_with_relations.last_login = datetime.now()
+#         await db.commit()
+        
+#         # Convert to schema
+#         from app.schemas.user import UserWithFacility
+#         user_data = UserWithFacility.model_validate(user_with_relations, from_attributes=True).model_dump()
+        
+#         # Create auth response
+#         auth_data = {
+#             "access_token": new_access_token,
+#             "user": user_data
+#         }
+        
+#         auth_response = AuthResponse(**auth_data)
+
+#         return {"data": auth_response}
+
+#     except ValueError as e:
+#         # Token is invalid or expired
+#         raise HTTPException(
+#             status_code=401, 
+#             detail=f"Invalid or expired refresh token: {str(e)}"
+#         )
+# Replace the refresh endpoint in your auth.py file with this updated version
+
 @router.get("/refresh", response_model=DataWrapper[AuthResponse])
 async def refresh_token(
     response: Response,
@@ -160,22 +267,12 @@ async def refresh_token(
 
         user_id = UUID(user_id_str)
 
-        # Get the user data from the database
-        user_service = UserService(db)
-        user = await user_service.get_user(user_id)
-        
-        if not user:
-            raise HTTPException(
-                status_code=401, 
-                detail="User not found"
-            )
-
         # Create new access token with user data
-        token_data = {"sub": str(user.id), "email": user.email}
+        token_data = {"sub": str(user_id)}
         new_access_token = TokenManager.create_access_token(token_data)
 
         # Create a new refresh token (token rotation)
-        new_refresh_token = TokenManager.create_refresh_token(user.id)
+        new_refresh_token = TokenManager.create_refresh_token(user_id)
         
         # Update refresh token cookie
         response.set_cookie(
@@ -187,20 +284,28 @@ async def refresh_token(
             max_age=60 * 60 * 24 * REFRESH_TOKEN_EXPIRE_DAYS
         )
 
-        # Get user data with facility and blood bank (similar to authenticate_user method)
-        # But without password verification
+        # Get user data with both facility relationships loaded
         from sqlalchemy.orm import selectinload
         from app.models.health_facility import Facility
         
-        # Get the full user with facility and blood bank loaded
+        # Get the full user with both facility relationships loaded
         result = await db.execute(
             select(User)
             .options(
-                selectinload(User.facility).selectinload(Facility.blood_bank)
+                # For facility administrators - facilities they manage
+                selectinload(User.facility).selectinload(Facility.blood_bank),
+                # For staff/lab managers - facilities they work at
+                selectinload(User.work_facility).selectinload(Facility.blood_bank)
             )
             .where(User.id == user_id)
         )
         user_with_relations = result.scalar_one_or_none()
+        
+        if not user_with_relations:
+            raise HTTPException(
+                status_code=401, 
+                detail="User not found"
+            )
         
         # Update last login time
         user_with_relations.last_login = datetime.now()

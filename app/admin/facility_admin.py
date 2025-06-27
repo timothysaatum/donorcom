@@ -30,12 +30,12 @@ class FacilityAdmin(ModelView, model=Facility):
     }
 
     column_formatters_detail = {
-        "facility_manager": lambda m, c: m.facility_manager.name if m.facility_manager else "N/A"
+        "facility_manager": lambda m, c: m.facility_manager.last_name if m.facility_manager else "N/A"
     }
 
     # Optional: add column formatter for list view (to show name instead of object)
     column_formatters = {
-        "facility_manager": lambda m, c: m.facility_manager.name if m.facility_manager else "N/A"
+        "facility_manager": lambda m, c: m.facility_manager.last_name if m.facility_manager else "N/A"
     }
 
     column_actions = ["assign_manager", "deactivate", "activate"]

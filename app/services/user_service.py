@@ -21,7 +21,8 @@ class UserService:
     async def create_user(
             self, user_data: UserCreate, 
             background_tasks: BackgroundTasks = None,
-            facility_id: Optional[UUID] = None
+            facility_id: Optional[UUID] = None,
+            work_facility_id: Optional[UUID] = None
 
             ) -> User:
         result = await self.db.execute(select(User).where(User.email == user_data.email))
@@ -42,7 +43,7 @@ class UserService:
             phone=user_data.phone,
             verification_token=verification_token,
             facility_id=facility_id if facility_id else None,
-            
+            work_facility_id=work_facility_id if work_facility_id else None
         )
 
         self.db.add(created_user)
@@ -60,7 +61,10 @@ class UserService:
         result = await self.db.execute(
             select(User)
             .options(
-                selectinload(User.facility).selectinload(Facility.blood_bank)
+                # For facility administrators - facilities they manage
+                selectinload(User.facility).selectinload(Facility.blood_bank),
+                # For staff/lab managers - facilities they work at
+                selectinload(User.work_facility).selectinload(Facility.blood_bank)
             )
             .where(User.email == email)
         )

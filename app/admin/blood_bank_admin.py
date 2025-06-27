@@ -20,7 +20,7 @@ class BloodBankAdmin(ModelView, model=BloodBank):
 
     column_formatters_detail = {
         "facility": lambda m, c: m.facility.facility_name if m.facility else "N/A",
-        "manager_user": lambda m, c: m.manager_user.name if m.manager_user else "N/A"
+        "manager_user": lambda m, c: m.manager_user.last_name if m.manager_user else "N/A"
     }
 
     form_columns = [
