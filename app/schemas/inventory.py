@@ -1,3 +1,44 @@
+# from pydantic import BaseModel, Field, UUID4
+# from typing import Optional
+# from datetime import date, datetime
+
+
+# class BloodInventoryBase(BaseModel):
+#     blood_product: str = Field(..., description="Type of blood product (e.g., Whole Blood, Plasma)")
+#     blood_type: str = Field(..., description="Blood type (e.g., A+, B-, O+)")
+#     quantity: int = Field(..., ge=0, description="Units of blood available")
+#     expiry_date: date = Field(..., description="Expiration date of the blood unit")
+
+
+# class BloodInventoryCreate(BloodInventoryBase):
+#     pass
+
+
+# class BloodInventoryUpdate(BaseModel):
+#     blood_product: Optional[str] = None
+#     blood_type: Optional[str] = None
+#     quantity: Optional[int] = Field(None, ge=0)
+#     expiry_date: Optional[date] = None
+
+
+# class BloodInventoryResponse(BloodInventoryBase):
+#     id: UUID4
+#     blood_bank_id: UUID4
+#     added_by_id: Optional[UUID4]
+#     created_at: datetime
+#     updated_at: datetime
+
+#     class Config:
+#         from_attributes = True
+
+
+# class BloodInventoryDetailResponse(BloodInventoryResponse):
+#     # Optional: Include nested data about blood bank and user who added
+#     blood_bank_name: Optional[str] = None
+#     added_by_name: Optional[str] = None
+
+#     class Config:
+#         from_attributes = True
 from pydantic import BaseModel, Field, field_validator, ConfigDict, FieldValidationInfo
 from uuid import UUID
 from datetime import datetime, date
@@ -10,48 +51,62 @@ class SortOrder(str, Enum):
     DESC = "desc"
 
 
-class BloodProduct(str, Enum):
-    WHOLE_BLOOD = "Whole Blood"
-    RED_BLOOD_CELLS = "Red Blood Cells"
-    PACKED_RED_BLOOD_CELLS = "Packed Red Blood Cells"
-    LEUKOCYTE_REDUCED_RED_CELLS = "Leukocyte Reduced Red Cells"
-    WASHED_RED_BLOOD_CELLS = "Washed Red Blood Cells"
-    IRRADIATED_BLOOD = "Irradiated Blood"
-    PLASMA = "Plasma"
-    FRESH_FROZEN_PLASMA = "Fresh Frozen Plasma"
-    FROZEN_PLASMA = "Frozen Plasma"
-    APHERESIS_PLASMA = "Apheresis Plasma"
-    PLATELETS = "Platelets"
-    PLATELET_CONCENTRATE = "Platelet Concentrate"
-    APHERESIS_PLATELETS = "Apheresis Platelets"
-    CRYOPRECIPITATE = "Cryoprecipitate"
-    GRANULOCYTES = "Granulocytes"
-
-
-class BloodType(str, Enum):
-    A_POS = "A+"
-    A_NEG = "A-"
-    B_POS = "B+"
-    B_NEG = "B-"
-    AB_POS = "AB+"
-    AB_NEG = "AB-"
-    O_POS = "O+"
-    O_NEG = "O-"
-
-
 class BloodInventoryCreate(BaseModel):
-    blood_product: Optional[BloodProduct] = Field(None, description="Type of blood product")
-    blood_type: Optional[BloodType] = Field(None, description="Blood group")
+    blood_product: str = Field(..., min_length=1, max_length=50, description="Blood product type")
+    blood_type: str = Field(..., min_length=1, max_length=10, description="Blood type (e.g., A+, B-, O+)")
     quantity: int = Field(..., gt=0, description="Quantity in units")
+    # expires_in_days: int = Field(..., gt=0, le=365, description="Number of days until this blood unit expires")
     expiry_date: date = Field(..., description="Expiration date of the blood unit")
+
+    @field_validator('blood_type')
+    def validate_blood_type(cls, v):
+        valid_types = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
+        if v not in valid_types:
+            raise ValueError(f'Blood type must be one of: {", ".join(valid_types)}')
+        return v
+
+    @field_validator('blood_product')
+    def validate_blood_product(cls, v):
+        valid_products = ['Whole Blood', 'Red Blood Cells', 'Plasma', 'Platelets', 'Cryoprecipitate']
+        if v not in valid_products:
+            raise ValueError(f'Blood product must be one of: {", ".join(valid_products)}')
+        return v
+
+    # @field_validator('expires_in_days')
+    # def validate_expiry_days(cls, v):
+    #     if v <= 0:
+    #         raise ValueError("Must expire in at least 1 day")
+    #     return v
 
 
 class BloodInventoryUpdate(BaseModel):
-
-    blood_product: Optional[BloodProduct] = Field(None, description="Type of blood product")
-    blood_type: Optional[BloodType] = Field(None, description="Blood group")
+    blood_product: Optional[str] = Field(None, min_length=1, max_length=50)
+    blood_type: Optional[str] = Field(None, min_length=1, max_length=10)
     quantity: Optional[int] = Field(None, gt=0)
+    # expires_in_days: int = Field(..., gt=0, le=365, description="Number of days until this blood unit expires")
     expiry_date: date = Field(..., description="Expiration date of the blood unit")
+
+    @field_validator('blood_type')
+    def validate_blood_type(cls, v):
+        if v is not None:
+            valid_types = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
+            if v not in valid_types:
+                raise ValueError(f'Blood type must be one of: {", ".join(valid_types)}')
+        return v
+
+    @field_validator('blood_product')
+    def validate_blood_product(cls, v):
+        if v is not None:
+            valid_products = ['Whole Blood', 'Red Blood Cells', 'Plasma', 'Platelets', 'Cryoprecipitate']
+            if v not in valid_products:
+                raise ValueError(f'Blood product must be one of: {", ".join(valid_products)}')
+        return v
+
+    # @field_validator('expires_in_days')
+    # def validate_expiry_days(cls, v):
+    #     if v <= 0:
+    #         raise ValueError("Must expire in at least 1 day")
+    #     return v
 
 
 class BloodInventoryBatchCreate(BaseModel):
@@ -90,9 +145,18 @@ class BloodInventoryResponse(BaseModel):
     added_by_id: Optional[UUID]
     created_at: datetime
     updated_at: datetime
+    # expires_in_days: Optional[int] = None
 
     class Config:
         from_attributes = True
+
+    # @field_validator('expires_in_days', mode='before')
+    # def calculate_days_left(cls, _, info: FieldValidationInfo):
+    #     # print('Printing info', info.data)
+    #     expiry_date = info.data.get("expiry_date")
+    #     if expiry_date:
+    #         return (expiry_date - date.today()).days
+    #     return None
 
 
 class BloodInventoryDetailResponse(BloodInventoryResponse):
@@ -131,6 +195,8 @@ class PaginatedResponse(BaseModel, Generic[T]):
     has_next: bool
     has_prev: bool
 
+    # class Config:
+    #     from_attributes = True
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
@@ -165,8 +231,8 @@ class InventoryStatistics(BaseModel):
 
 class BloodInventorySearchParams(BaseModel):
     """Advanced search parameters for blood inventory"""
-    blood_product: Optional[BloodProduct] = Field(None, description="Type of blood product")
-    blood_type: Optional[BloodType] = Field(None, description="Blood group")
+    blood_types: Optional[List[str]] = Field(None, description="Filter by multiple blood types")
+    blood_products: Optional[List[str]] = Field(None, description="Filter by multiple blood products")
     min_quantity: Optional[int] = Field(None, ge=0, description="Minimum quantity filter")
     max_quantity: Optional[int] = Field(None, ge=0, description="Maximum quantity filter")
     expiry_date_from: Optional[date] = Field(None, description="Filter by expiry date from")
@@ -176,6 +242,23 @@ class BloodInventorySearchParams(BaseModel):
     blood_bank_ids: Optional[List[UUID]] = Field(None, description="Filter by multiple blood banks")
     search_term: Optional[str] = Field(None, min_length=1, max_length=100, description="General search term")
 
+    @field_validator('blood_types')
+    def validate_blood_types(cls, v):
+        if v is not None:
+            valid_types = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
+            for blood_type in v:
+                if blood_type not in valid_types:
+                    raise ValueError(f'Invalid blood type: {blood_type}')
+        return v
+
+    @field_validator('blood_products')
+    def validate_blood_products(cls, v):
+        if v is not None:
+            valid_products = ['Whole Blood', 'Red Blood Cells', 'Plasma', 'Platelets', 'Cryoprecipitate']
+            for product in v:
+                if product not in valid_products:
+                    raise ValueError(f'Invalid blood product: {product}')
+        return v
 
     @field_validator('max_quantity')
     def validate_quantity_range(cls, v, info: FieldValidationInfo):
@@ -197,3 +280,10 @@ class BloodInventorySearchParams(BaseModel):
         if v is not None and created_from is not None and v < created_from:
             raise ValueError('created_to must be greater than or equal to created_from')
         return v
+        
+class FacilityWithBloodAvailability(BaseModel):
+    facility_id: UUID
+    facility_name: str
+
+class PaginatedFacilityResponse(PaginatedResponse[FacilityWithBloodAvailability]):
+    pass

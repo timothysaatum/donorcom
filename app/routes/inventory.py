@@ -4,7 +4,8 @@ from app.schemas.inventory import (
     BloodInventoryCreate, BloodInventoryResponse, BloodInventoryUpdate, 
     BloodInventoryDetailResponse, BloodInventoryBatchCreate, BloodInventoryBatchUpdate,
     BloodInventoryBatchDelete, PaginationParams, PaginatedResponse, BatchOperationResponse, InventoryStatistics,
-    BloodInventorySearchParams
+    BloodInventorySearchParams,
+    PaginatedFacilityResponse
 )
 from app.services.inventory import BloodInventoryService
 from app.models.user import User
@@ -116,6 +117,35 @@ async def batch_create_blood_units(
             processed_count=0,
             failed_count=len(batch_data.blood_units),
             errors=[str(e)]
+        )
+        
+        
+@router.get("/facilities/stock", response_model=PaginatedFacilityResponse)
+async def get_facilities_with_available_blood(
+    blood_type: str = Query(..., description="Blood type to filter by (e.g., A+, B-)"),
+    blood_product: str = Query(..., description="Blood product to filter by (e.g., Whole Blood, Plasma)"),
+    pagination: PaginationParams = Depends(get_pagination_params),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get paginated list of unique facilities that have available blood inventory 
+    matching the specified type and product.
+    Returns only facility ID and name for efficient response.
+    """
+    blood_service = BloodInventoryService(db)
+    try:
+        return await blood_service.get_facilities_with_available_blood(
+            blood_type=blood_type,
+            blood_product=blood_product,
+            pagination=pagination
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching facilities with available blood: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not fetch facility data"
         )
 
 
@@ -293,8 +323,8 @@ async def list_blood_units_paginated(
         has_next=result.has_next,
         has_prev=result.has_prev
     )
-
-
+    
+    
 @router.post("/search", response_model=PaginatedResponse[BloodInventoryDetailResponse])
 async def advanced_search_blood_units(
     search_params: BloodInventorySearchParams,

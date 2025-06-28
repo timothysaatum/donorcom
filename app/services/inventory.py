@@ -1,140 +1,18 @@
-# from sqlalchemy.ext.asyncio import AsyncSession
-# from sqlalchemy.future import select
-# from sqlalchemy.orm import joinedload
-# from fastapi import HTTPException
-# from uuid import UUID
-# from app.models.inventory import BloodInventory
-# from app.schemas.inventory import BloodInventoryCreate, BloodInventoryUpdate
-# from typing import Optional, List
-
-
-
-# class BloodInventoryService:
-#     def __init__(self, db: AsyncSession):
-#         self.db = db
-
-#     async def create_blood_unit(self, 
-#                                blood_data: BloodInventoryCreate, 
-#                                blood_bank_id: UUID, 
-#                                added_by_id: UUID) -> BloodInventory:
-#         """
-#         Create a new blood unit inventory entry
-#         """
-#         new_blood_unit = BloodInventory(
-#             **blood_data.model_dump(),
-#             blood_bank_id=blood_bank_id,
-#             added_by_id=added_by_id
-#         )
-
-#         self.db.add(new_blood_unit)
-#         await self.db.commit()
-#         await self.db.refresh(new_blood_unit)
-        
-#         # Load relationships
-#         await self.db.refresh(new_blood_unit, attribute_names=["blood_bank", "added_by"])
-        
-#         return new_blood_unit
-
-#     async def get_blood_unit(self, blood_unit_id: UUID) -> Optional[BloodInventory]:
-#         """
-#         Get a blood unit by ID
-#         """
-#         result = await self.db.execute(
-#             select(BloodInventory)
-#             .options(joinedload(BloodInventory.blood_bank), joinedload(BloodInventory.added_by))
-#             .where(BloodInventory.id == blood_unit_id)
-#         )
-#         return result.scalar_one_or_none()
-
-#     async def update_blood_unit(self, blood_unit_id: UUID, blood_data: BloodInventoryUpdate) -> BloodInventory:
-#         """
-#         Update a blood unit
-#         """
-#         blood_unit = await self.get_blood_unit(blood_unit_id)
-#         if not blood_unit:
-#             raise HTTPException(status_code=404, detail="Blood unit not found")
-
-#         update_data = blood_data.model_dump(exclude_unset=True)
-
-#         for field, value in update_data.items():
-#             setattr(blood_unit, field, value)
-
-#         # Update the updated_at timestamp
-#         await self.db.commit()
-#         await self.db.refresh(blood_unit)
-
-#         return blood_unit
-
-#     async def delete_blood_unit(self, blood_unit_id: UUID) -> bool:
-#         """
-#         Delete a blood unit
-#         """
-#         blood_unit = await self.get_blood_unit(blood_unit_id)
-#         if not blood_unit:
-#             raise HTTPException(status_code=404, detail="Blood unit not found")
-
-#         await self.db.delete(blood_unit)
-#         await self.db.commit()
-#         return True
-
-#     async def get_all_blood_units(self) -> List[BloodInventory]:
-#         """
-#         Get all blood units with their relationships
-#         """
-#         result = await self.db.execute(
-#             select(BloodInventory)
-#             .options(joinedload(BloodInventory.blood_bank), joinedload(BloodInventory.added_by))
-#         )
-#         return result.scalars().all()
-
-#     async def get_blood_units_by_bank(self, blood_bank_id: UUID) -> List[BloodInventory]:
-#         """
-#         Get all blood units for a specific blood bank
-#         """
-#         result = await self.db.execute(
-#             select(BloodInventory)
-#             .options(joinedload(BloodInventory.blood_bank), joinedload(BloodInventory.added_by))
-#             .where(BloodInventory.blood_bank_id == blood_bank_id)
-#         )
-#         return result.scalars().all()
-    
-#     async def get_expiring_blood_units(self, days: int = 7) -> List[BloodInventory]:
-#         """
-#         Get blood units expiring in the next X days
-#         """
-#         from datetime import datetime, timedelta
-#         expiry_threshold = datetime.now().date() + timedelta(days=days)
-        
-#         result = await self.db.execute(
-#             select(BloodInventory)
-#             .options(joinedload(BloodInventory.blood_bank), joinedload(BloodInventory.added_by))
-#             .where(BloodInventory.expiry_date <= expiry_threshold)
-#             .order_by(BloodInventory.expiry_date)
-#         )
-#         return result.scalars().all()
-
-#     async def get_blood_units_by_type(self, blood_type: str) -> List[BloodInventory]:
-#         """
-#         Get all blood units of a specific blood type
-#         """
-#         result = await self.db.execute(
-#             select(BloodInventory)
-#             .options(joinedload(BloodInventory.blood_bank), joinedload(BloodInventory.added_by))
-#             .where(BloodInventory.blood_type == blood_type)
-#         )
-#         return result.scalars().all()
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload
-from sqlalchemy import func, and_, or_
-from fastapi import HTTPException
+from sqlalchemy import distinct, func, and_, or_
+from fastapi import HTTPException, status
 from uuid import UUID
 from app.models.inventory import BloodInventory
+from app.models.health_facility import Facility
+from app.models.blood_bank import BloodBank
 from app.schemas.inventory import (
     BloodInventoryCreate, 
     BloodInventoryUpdate, 
     PaginationParams,
-    PaginatedResponse
+    PaginatedResponse,
+    FacilityWithBloodAvailability
 )
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
@@ -181,6 +59,98 @@ class BloodInventoryService:
         await self.db.refresh(new_blood_unit, attribute_names=["blood_bank", "added_by"])
         
         return new_blood_unit
+        
+    async def get_facilities_with_available_blood(
+        self,
+        blood_type: str,
+        blood_product: str,
+        pagination: PaginationParams
+    ) -> PaginatedResponse[FacilityWithBloodAvailability]:
+        """
+        Get paginated list of unique facilities with available blood inventory
+        matching the specified type and product.
+        """
+        # Validate blood type and product
+        self._validate_blood_attributes(blood_type, blood_product)
+
+        # Build base query for counting total items
+        count_query = select(func.count(distinct(Facility.id)))\
+            .select_from(Facility)\
+            .join(BloodBank, Facility.id == BloodBank.facility_id)\
+            .join(BloodInventory, BloodBank.id == BloodInventory.blood_bank_id)\
+            .where(
+                BloodInventory.blood_type == blood_type,
+                BloodInventory.blood_product == blood_product,
+                BloodInventory.quantity > 0,
+                BloodInventory.expiry_date >= datetime.now().date()
+            )
+
+        # Get total count
+        total_result = await self.db.execute(count_query)
+        total_items = total_result.scalar()
+
+        # Build main query with pagination
+        query = select(
+            Facility.id.label("facility_id"),
+            Facility.facility_name
+        ).distinct()\
+         .select_from(Facility)\
+         .join(BloodBank, Facility.id == BloodBank.facility_id)\
+         .join(BloodInventory, BloodBank.id == BloodInventory.blood_bank_id)\
+         .where(
+             BloodInventory.blood_type == blood_type,
+             BloodInventory.blood_product == blood_product,
+             BloodInventory.quantity > 0,
+             BloodInventory.expiry_date >= datetime.now().date()
+         )
+
+        # Apply sorting
+        if pagination.sort_by and hasattr(Facility, pagination.sort_by):
+            sort_field = getattr(Facility, pagination.sort_by)
+            query = query.order_by(
+                sort_field.desc() if pagination.sort_order.lower() == "desc" 
+                else sort_field.asc()
+            )
+        else:
+            query = query.order_by(Facility.facility_name.asc())
+
+        # Apply pagination
+        offset = (pagination.page - 1) * pagination.page_size
+        query = query.offset(offset).limit(pagination.page_size)
+
+        # Execute query
+        result = await self.db.execute(query)
+        facilities = result.mappings().all()
+
+        # Calculate pagination metadata
+        total_pages = (total_items + pagination.page_size - 1) // pagination.page_size
+        has_next = pagination.page < total_pages
+        has_prev = pagination.page > 1
+
+        return PaginatedResponse(
+            items=[FacilityWithBloodAvailability(**facility) for facility in facilities],
+            total_items=total_items,
+            total_pages=total_pages,
+            current_page=pagination.page,
+            page_size=pagination.page_size,
+            has_next=has_next,
+            has_prev=has_prev
+        )
+
+    def _validate_blood_attributes(self, blood_type: str, blood_product: str):
+        """Helper method to validate blood type and product"""
+        try:
+            BloodInventoryCreate(
+                blood_type=blood_type,
+                blood_product=blood_product,
+                quantity=1,
+                expiry_date=datetime.now().date()
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(e)
+            )
 
     async def batch_create_blood_units(
             self,
