@@ -63,15 +63,51 @@ def decode_token(token: str) -> dict:
         raise ValueError("Invalid or expired token") from e
 
 
-async def get_current_user(db: AsyncSession = Depends(get_db), token: str = Depends(oauth2_scheme)) -> User:
-    """
-    Get current user with proper relationship loading for the /me endpoint
-    """
-    try:
-        # Decode and verify the token
-        payload = decode_token(token)
+# async def get_current_user(db: AsyncSession = Depends(get_db), token: str = Depends(oauth2_scheme)) -> User:
+#     """
+#     Get current user with proper relationship loading for the /me endpoint
+#     """
+#     try:
+#         # Decode and verify the token
+#         payload = decode_token(token)
         
-        # Extract user ID from the token (should be included in the 'sub' claim)
+#         # Extract user ID from the token (should be included in the 'sub' claim)
+#         user_id = payload.get("sub")
+#         if user_id is None:
+#             raise HTTPException(
+#                 status_code=status.HTTP_401_UNAUTHORIZED,
+#                 detail="Token does not contain user ID",
+#                 headers={"WWW-Authenticate": "Bearer"},
+#             )
+
+#         # Query the database to get the user by ID with facility and blood_bank loaded
+#         result = await db.execute(
+#             select(User)
+#             .options(
+#                 selectinload(User.facility).selectinload(Facility.blood_bank)
+#             )
+#             .where(User.id == UUID(user_id))
+#         )
+#         user = result.scalar_one_or_none()
+
+#         if user is None:
+#             raise HTTPException(
+#                 status_code=status.HTTP_401_UNAUTHORIZED,
+#                 detail="User not found",
+#                 headers={"WWW-Authenticate": "Bearer"},
+#             )
+
+#         return user
+        
+#     except (JWTError, ValueError):
+#         raise HTTPException(
+#             status_code=status.HTTP_401_UNAUTHORIZED,
+#             detail="Invalid authentication credentials",
+#             headers={"WWW-Authenticate": "Bearer"},
+#         )
+async def get_current_user(db: AsyncSession = Depends(get_db), token: str = Depends(oauth2_scheme)) -> User:
+    try:
+        payload = decode_token(token)
         user_id = payload.get("sub")
         if user_id is None:
             raise HTTPException(
@@ -80,11 +116,11 @@ async def get_current_user(db: AsyncSession = Depends(get_db), token: str = Depe
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        # Query the database to get the user by ID with facility and blood_bank loaded
         result = await db.execute(
             select(User)
             .options(
-                selectinload(User.facility).selectinload(Facility.blood_bank)
+                selectinload(User.facility).selectinload(Facility.blood_bank),
+                selectinload(User.work_facility).selectinload(Facility.blood_bank)  # ← Add this
             )
             .where(User.id == UUID(user_id))
         )
@@ -98,7 +134,7 @@ async def get_current_user(db: AsyncSession = Depends(get_db), token: str = Depe
             )
 
         return user
-        
+
     except (JWTError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -10,6 +10,7 @@ from app.schemas.inventory import (
 from app.services.inventory import BloodInventoryService
 from app.models.user import User
 from app.models.inventory import BloodInventory
+from app.models.health_facility import Facility
 from app.utils.security import get_current_user
 from app.dependencies import get_db
 from uuid import UUID
@@ -17,6 +18,8 @@ from typing import List, Optional, Literal
 from sqlalchemy.future import select
 from app.models.blood_bank import BloodBank
 from datetime import datetime
+from sqlalchemy import or_
+from sqlalchemy.orm import joinedload
 import logging
 
 logger = logging.getLogger(__name__)
@@ -28,21 +31,37 @@ router = APIRouter(
 
 
 # Helper function to get blood bank ID for the current user
-async def get_user_blood_bank_id(db: AsyncSession, user_id: UUID) -> UUID:
-    """Get the blood bank ID associated with the user"""
+# async def get_user_blood_bank_id(db: AsyncSession, user_id: UUID) -> UUID:
+#     """Get the blood bank ID associated with the user"""
+#     result = await db.execute(
+#         select(BloodBank).where(BloodBank.manager_id == user_id)
+#     )
+#     blood_bank = result.scalar_one_or_none()
+    
+#     if blood_bank:
+#         return blood_bank.id
+    
+#     raise HTTPException(
+#         status_code=status.HTTP_403_FORBIDDEN,
+#         detail="You are not associated with any blood bank"
+#     )
+async def get_user_blood_bank_id(db, user_id):
+    """
+    Returns just the blood bank ID (UUID) for the user.
+    """
     result = await db.execute(
-        select(BloodBank).where(BloodBank.manager_id == user_id)
+        select(BloodBank.id)  # ← Changed this line
+        .join(Facility, BloodBank.facility_id == Facility.id)
+        .where(
+            (Facility.facility_manager_id == user_id) |
+            (Facility.id.in_(
+                select(User.work_facility_id).where(User.id == user_id)
+            )) |
+            (BloodBank.manager_id == user_id)
+        )
     )
-    blood_bank = result.scalar_one_or_none()
     
-    if blood_bank:
-        return blood_bank.id
-    
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="You are not associated with any blood bank"
-    )
-
+    return result.scalar()
 
 # Create pagination dependency
 def get_pagination_params(
