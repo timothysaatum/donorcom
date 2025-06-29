@@ -120,7 +120,7 @@ async def batch_create_blood_units(
         )
         
         
-@router.get("/search-stock", response_model=PaginatedFacilityResponse)
+@router.get("/facilities/search-stock", response_model=PaginatedFacilityResponse)
 async def get_facilities_with_available_blood(
     blood_type: Literal["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"] = Query(
         ..., 
@@ -283,8 +283,8 @@ async def get_blood_unit(
     return response
 
 
-@router.get("/", response_model=PaginatedResponse[BloodInventoryDetailResponse])
-async def facility_blood_units_paginated(
+@router.get("/facility/view-inventory", response_model=PaginatedResponse[BloodInventoryDetailResponse])
+async def facility_blood_inventory(
     pagination: PaginationParams = Depends(get_pagination_params),
     # blood_bank_id: Optional[UUID] = Query(None, description="Filter by blood bank ID"),
     blood_type: Optional[str] = Query(None, description="Filter by blood type"),
@@ -333,7 +333,7 @@ async def facility_blood_units_paginated(
     )
     
     
-@router.post("/search", response_model=PaginatedResponse[BloodInventoryDetailResponse])
+@router.post("/advanced-search", response_model=PaginatedResponse[BloodInventoryDetailResponse])
 async def advanced_search_blood_units(
     search_params: BloodInventorySearchParams,
     pagination: PaginationParams = Depends(get_pagination_params),
@@ -452,7 +452,7 @@ async def delete_blood_unit(
 
 
 @router.get("/bank/{blood_bank_id}", response_model=PaginatedResponse[BloodInventoryDetailResponse])
-async def get_blood_units_by_bank_paginated(
+async def get_blood_units_by_bank(
     blood_bank_id: UUID,
     pagination: PaginationParams = Depends(get_pagination_params),
     db: AsyncSession = Depends(get_db)
