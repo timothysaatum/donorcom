@@ -30,21 +30,6 @@ router = APIRouter(
 )
 
 
-# Helper function to get blood bank ID for the current user
-# async def get_user_blood_bank_id(db: AsyncSession, user_id: UUID) -> UUID:
-#     """Get the blood bank ID associated with the user"""
-#     result = await db.execute(
-#         select(BloodBank).where(BloodBank.manager_id == user_id)
-#     )
-#     blood_bank = result.scalar_one_or_none()
-    
-#     if blood_bank:
-#         return blood_bank.id
-    
-#     raise HTTPException(
-#         status_code=status.HTTP_403_FORBIDDEN,
-#         detail="You are not associated with any blood bank"
-#     )
 async def get_user_blood_bank_id(db, user_id):
     """
     Returns just the blood bank ID (UUID) for the user.
@@ -139,22 +124,55 @@ async def batch_create_blood_units(
         )
         
         
+# @router.get("/facilities/search-stock", response_model=PaginatedFacilityResponse)
+# async def get_facilities_with_available_blood(
+#     blood_type: Literal["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"] = Query(
+#         ..., 
+#         description="Blood type to filter by (e.g., A+, B-)"
+#     ),
+#     blood_product: Literal["Whole Blood", "Red Blood Cells", "Plasma", "Platelets", "Cryoprecipitate"] = Query(
+#         ..., 
+#         description="Blood product to filter by (e.g., Whole Blood, Plasma)"
+#     ),
+#     pagination: PaginationParams = Depends(get_pagination_params),
+#     db: AsyncSession = Depends(get_db)
+# ):
+#     """
+#     Get paginated list of unique facilities that have available blood inventory 
+#     matching the specified type and product.
+#     Returns only facility ID and name for efficient response.
+#     """
+#     blood_service = BloodInventoryService(db)
+#     try:
+#         return await blood_service.get_facilities_with_available_blood(
+#             blood_type=blood_type,
+#             blood_product=blood_product,
+#             pagination=pagination
+#         )
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         logger.error(f"Error fetching facilities with available blood: {str(e)}")
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail="Could not fetch facility data"
+#         )
 @router.get("/facilities/search-stock", response_model=PaginatedFacilityResponse)
 async def get_facilities_with_available_blood(
-    blood_type: Literal["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"] = Query(
-        ..., 
-        description="Blood type to filter by (e.g., A+, B-)"
+    blood_type: Optional[str] = Query(
+        None, 
+        description="Blood type to filter by (e.g., A+, B-). If not provided, returns all blood types."
     ),
-    blood_product: Literal["Whole Blood", "Red Blood Cells", "Plasma", "Platelets", "Cryoprecipitate"] = Query(
-        ..., 
-        description="Blood product to filter by (e.g., Whole Blood, Plasma)"
+    blood_product: Optional[str] = Query(
+        None, 
+        description="Blood product to filter by (e.g., Whole Blood, Plasma). If not provided, returns all products."
     ),
     pagination: PaginationParams = Depends(get_pagination_params),
-    db: AsyncSession = Depends(get_db)
-):
+    db: AsyncSession = Depends(get_db)):
     """
-    Get paginated list of unique facilities that have available blood inventory 
-    matching the specified type and product.
+    Get paginated list of unique facilities that have available blood inventory.
+    If blood_type and blood_product are provided, filters by those criteria.
+    If not provided, returns all facilities with any available blood inventory.
     Returns only facility ID and name for efficient response.
     """
     blood_service = BloodInventoryService(db)
@@ -305,7 +323,6 @@ async def get_blood_unit(
 @router.get("/facility/view-inventory", response_model=PaginatedResponse[BloodInventoryDetailResponse])
 async def facility_blood_inventory(
     pagination: PaginationParams = Depends(get_pagination_params),
-    # blood_bank_id: Optional[UUID] = Query(None, description="Filter by blood bank ID"),
     blood_type: Optional[str] = Query(None, description="Filter by blood type"),
     blood_product: Optional[str] = Query(None, description="Filter by blood product"),
     expiry_date_from: Optional[datetime] = Query(None, description="Filter by expiry date from"),

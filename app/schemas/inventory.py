@@ -1,44 +1,3 @@
-# from pydantic import BaseModel, Field, UUID4
-# from typing import Optional
-# from datetime import date, datetime
-
-
-# class BloodInventoryBase(BaseModel):
-#     blood_product: str = Field(..., description="Type of blood product (e.g., Whole Blood, Plasma)")
-#     blood_type: str = Field(..., description="Blood type (e.g., A+, B-, O+)")
-#     quantity: int = Field(..., ge=0, description="Units of blood available")
-#     expiry_date: date = Field(..., description="Expiration date of the blood unit")
-
-
-# class BloodInventoryCreate(BloodInventoryBase):
-#     pass
-
-
-# class BloodInventoryUpdate(BaseModel):
-#     blood_product: Optional[str] = None
-#     blood_type: Optional[str] = None
-#     quantity: Optional[int] = Field(None, ge=0)
-#     expiry_date: Optional[date] = None
-
-
-# class BloodInventoryResponse(BloodInventoryBase):
-#     id: UUID4
-#     blood_bank_id: UUID4
-#     added_by_id: Optional[UUID4]
-#     created_at: datetime
-#     updated_at: datetime
-
-#     class Config:
-#         from_attributes = True
-
-
-# class BloodInventoryDetailResponse(BloodInventoryResponse):
-#     # Optional: Include nested data about blood bank and user who added
-#     blood_bank_name: Optional[str] = None
-#     added_by_name: Optional[str] = None
-
-#     class Config:
-#         from_attributes = True
 from pydantic import BaseModel, Field, field_validator, ConfigDict, FieldValidationInfo
 from uuid import UUID
 from datetime import datetime, date
@@ -72,18 +31,11 @@ class BloodInventoryCreate(BaseModel):
             raise ValueError(f'Blood product must be one of: {", ".join(valid_products)}')
         return v
 
-    # @field_validator('expires_in_days')
-    # def validate_expiry_days(cls, v):
-    #     if v <= 0:
-    #         raise ValueError("Must expire in at least 1 day")
-    #     return v
-
 
 class BloodInventoryUpdate(BaseModel):
     blood_product: Optional[str] = Field(None, min_length=1, max_length=50)
     blood_type: Optional[str] = Field(None, min_length=1, max_length=10)
     quantity: Optional[int] = Field(None, gt=0)
-    # expires_in_days: int = Field(..., gt=0, le=365, description="Number of days until this blood unit expires")
     expiry_date: date = Field(..., description="Expiration date of the blood unit")
 
     @field_validator('blood_type')
@@ -101,12 +53,6 @@ class BloodInventoryUpdate(BaseModel):
             if v not in valid_products:
                 raise ValueError(f'Blood product must be one of: {", ".join(valid_products)}')
         return v
-
-    # @field_validator('expires_in_days')
-    # def validate_expiry_days(cls, v):
-    #     if v <= 0:
-    #         raise ValueError("Must expire in at least 1 day")
-    #     return v
 
 
 class BloodInventoryBatchCreate(BaseModel):
