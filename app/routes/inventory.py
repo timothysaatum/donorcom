@@ -13,7 +13,7 @@ from app.models.inventory import BloodInventory
 from app.utils.security import get_current_user
 from app.dependencies import get_db
 from uuid import UUID
-from typing import List, Optional
+from typing import List, Optional, Literal
 from sqlalchemy.future import select
 from app.models.blood_bank import BloodBank
 from datetime import datetime
@@ -120,10 +120,16 @@ async def batch_create_blood_units(
         )
         
         
-@router.get("/facilities/stock", response_model=PaginatedFacilityResponse)
+@router.get("/search-stock", response_model=PaginatedFacilityResponse)
 async def get_facilities_with_available_blood(
-    blood_type: str = Query(..., description="Blood type to filter by (e.g., A+, B-)"),
-    blood_product: str = Query(..., description="Blood product to filter by (e.g., Whole Blood, Plasma)"),
+    blood_type: Literal["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"] = Query(
+        ..., 
+        description="Blood type to filter by (e.g., A+, B-)"
+    ),
+    blood_product: Literal["Whole Blood", "Red Blood Cells", "Plasma", "Platelets", "Cryoprecipitate"] = Query(
+        ..., 
+        description="Blood product to filter by (e.g., Whole Blood, Plasma)"
+    ),
     pagination: PaginationParams = Depends(get_pagination_params),
     db: AsyncSession = Depends(get_db)
 ):
@@ -278,20 +284,22 @@ async def get_blood_unit(
 
 
 @router.get("/", response_model=PaginatedResponse[BloodInventoryDetailResponse])
-async def list_blood_units_paginated(
+async def facility_blood_units_paginated(
     pagination: PaginationParams = Depends(get_pagination_params),
-    blood_bank_id: Optional[UUID] = Query(None, description="Filter by blood bank ID"),
+    # blood_bank_id: Optional[UUID] = Query(None, description="Filter by blood bank ID"),
     blood_type: Optional[str] = Query(None, description="Filter by blood type"),
     blood_product: Optional[str] = Query(None, description="Filter by blood product"),
     expiry_date_from: Optional[datetime] = Query(None, description="Filter by expiry date from"),
     expiry_date_to: Optional[datetime] = Query(None, description="Filter by expiry date to"),
     search_term: Optional[str] = Query(None, description="Search in blood type and product"),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """
     List blood units with comprehensive pagination and filtering.
     Supports sorting by multiple fields and advanced search capabilities.
     """
+    blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
     blood_service = BloodInventoryService(db)
     
     result = await blood_service.get_paginated_blood_units(
