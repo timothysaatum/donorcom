@@ -320,7 +320,7 @@ async def get_blood_unit(
     return response
 
 
-@router.get("/facility/view-inventory", response_model=PaginatedResponse[BloodInventoryDetailResponse])
+@router.get("/", response_model=PaginatedResponse[BloodInventoryDetailResponse])
 async def facility_blood_inventory(
     pagination: PaginationParams = Depends(get_pagination_params),
     blood_type: Optional[str] = Query(None, description="Filter by blood type"),
