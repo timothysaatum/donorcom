@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Enum, func, Text
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Enum, func, Text, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.db.base import Base
@@ -11,10 +11,10 @@ class RequestStatus(str, enum.Enum):
     approved = "approved"
     rejected = "rejected"
     fulfilled = "fulfilled"
+    cancelled = "cancelled"  # New status for auto-cancelled requests
 
 
 class BloodRequest(Base):
-
     """Model representing a request for blood or blood products."""
 
     __tablename__ = "blood_requests"
@@ -23,14 +23,22 @@ class BloodRequest(Base):
 
     requester_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
     fulfilled_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    blood_bank_id = Column(UUID(as_uuid=True), ForeignKey("blood_banks.id", ondelete="SET NULL"))
-    # patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id", ondelete="CASCADE"))
+    facility_id = Column(UUID(as_uuid=True), ForeignKey("facilities.id", ondelete="SET NULL"))
+    
+    # Group ID to link related requests across multiple facilities
+    request_group_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    
+    # Flag to indicate if this is the primary/master request
+    is_master_request = Column(Boolean, default=False)
 
     blood_type = Column(String(10), nullable=False)
     blood_product = Column(String(50), nullable=False)
     quantity_requested = Column(Integer, nullable=False)
     status = Column(Enum(RequestStatus), default=RequestStatus.pending)
     notes = Column(Text, nullable=True)
+    
+    # Cancellation reason for auto-cancelled requests
+    cancellation_reason = Column(String(200), nullable=True)
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -38,9 +46,7 @@ class BloodRequest(Base):
     # Relationships
     requester = relationship("User", foreign_keys=[requester_id])
     fulfilled_by = relationship("User", foreign_keys=[fulfilled_by_id])
-    blood_bank = relationship("BloodBank")
-    # patient_id = Column(UUID(as_uuid=True), ForeignKey("patients.id", ondelete="SET NULL"), nullable=True)
-    # patient = relationship("Patient", back_populates="blood_requests")
+    facility = relationship("Facility")
     
     def __repr__(self):
-        return f"<BloodRequest(id={self.id}, requester_id={self.requester_id}, status={self.status})>"
+        return f"<BloodRequest(id={self.id}, requester_id={self.requester_id}, status={self.status}, group_id={self.request_group_id})>"

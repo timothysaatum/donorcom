@@ -487,56 +487,56 @@ async def delete_blood_unit(
     await blood_service.delete_blood_unit(blood_unit_id)
 
 
-@router.get("/bank/{blood_bank_id}", response_model=PaginatedResponse[BloodInventoryDetailResponse])
-async def get_blood_units_by_bank(
-    blood_bank_id: UUID,
-    pagination: PaginationParams = Depends(get_pagination_params),
-    db: AsyncSession = Depends(get_db)
-):
-    """Get paginated blood units for a specific blood bank"""
-    blood_service = BloodInventoryService(db)
-    result = await blood_service.get_blood_units_by_bank(blood_bank_id, pagination)
+# @router.get("/bank/{blood_bank_id}", response_model=PaginatedResponse[BloodInventoryDetailResponse])
+# async def get_blood_units_by_bank(
+#     blood_bank_id: UUID,
+#     pagination: PaginationParams = Depends(get_pagination_params),
+#     db: AsyncSession = Depends(get_db)
+# ):
+#     """Get paginated blood units for a specific blood bank"""
+#     blood_service = BloodInventoryService(db)
+#     result = await blood_service.get_blood_units_by_bank(blood_bank_id, pagination)
     
-    if isinstance(result, list):
-        # Convert to paginated response for consistency
-        detailed_items = [
-            BloodInventoryDetailResponse(
-                **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
-                blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
-                added_by_name=unit.added_by.last_name if unit.added_by else None
-            )
-            for unit in result
-        ]
+#     if isinstance(result, list):
+#         # Convert to paginated response for consistency
+#         detailed_items = [
+#             BloodInventoryDetailResponse(
+#                 **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
+#                 blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
+#                 added_by_name=unit.added_by.last_name if unit.added_by else None
+#             )
+#             for unit in result
+#         ]
         
-        return PaginatedResponse(
-            items=detailed_items,
-            total_items=len(detailed_items),
-            total_pages=1,
-            current_page=1,
-            page_size=len(detailed_items),
-            has_next=False,
-            has_prev=False
-        )
+#         return PaginatedResponse(
+#             items=detailed_items,
+#             total_items=len(detailed_items),
+#             total_pages=1,
+#             current_page=1,
+#             page_size=len(detailed_items),
+#             has_next=False,
+#             has_prev=False
+#         )
     
-    # Transform paginated result
-    detailed_items = [
-        BloodInventoryDetailResponse(
-            **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
-            blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
-            added_by_name=unit.added_by.last_name if unit.added_by else None
-        )
-        for unit in result.items
-    ]
+#     # Transform paginated result
+#     detailed_items = [
+#         BloodInventoryDetailResponse(
+#             **BloodInventoryResponse.model_validate(unit, from_attributes=True).model_dump(),
+#             blood_bank_name=unit.blood_bank.blood_bank_name if unit.blood_bank else None,
+#             added_by_name=unit.added_by.last_name if unit.added_by else None
+#         )
+#         for unit in result.items
+#     ]
     
-    return PaginatedResponse(
-        items=detailed_items,
-        total_items=result.total_items,
-        total_pages=result.total_pages,
-        current_page=result.current_page,
-        page_size=result.page_size,
-        has_next=result.has_next,
-        has_prev=result.has_prev
-    )
+#     return PaginatedResponse(
+#         items=detailed_items,
+#         total_items=result.total_items,
+#         total_pages=result.total_pages,
+#         current_page=result.current_page,
+#         page_size=result.page_size,
+#         has_next=result.has_next,
+#         has_prev=result.has_prev
+#     )
 
 
 @router.get("/expiring/{days}", response_model=PaginatedResponse[BloodInventoryDetailResponse])
@@ -544,8 +544,7 @@ async def get_expiring_blood_units_paginated(
     days: int = Path(..., ge=1, le=90, description="Number of days to check for expiration"),
     pagination: PaginationParams = Depends(get_pagination_params),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
+    current_user: User = Depends(get_current_user)):
     """
     Get paginated blood units expiring in the specified number of days.
     Only shows units from the blood bank associated with the current user.
@@ -605,8 +604,7 @@ async def get_expiring_blood_units_paginated(
 async def get_inventory_statistics(
     blood_bank_id: Optional[UUID] = Query(None, description="Filter statistics by blood bank"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
+    current_user: User = Depends(get_current_user)):
     """
     Get comprehensive inventory statistics.
     If blood_bank_id is not provided, uses the current user's blood bank.
@@ -625,8 +623,7 @@ async def export_inventory_csv(
     blood_bank_id: Optional[UUID] = Query(None, description="Filter by blood bank"),
     blood_type: Optional[str] = Query(None, description="Filter by blood type"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
+    current_user: User = Depends(get_current_user)):
     """
     Export blood inventory data as CSV.
     Supports filtering and is optimized for large datasets.
