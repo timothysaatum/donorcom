@@ -1,19 +1,22 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, func
 from fastapi import HTTPException
 from uuid import UUID, uuid4
-from typing import List, Optional, Tuple
-import asyncio
+from typing import List, Optional
+from math import ceil
 from app.models.request import BloodRequest, RequestStatus
 from app.models.health_facility import Facility
+from app.models.user import User
 from app.schemas.request import (
     BloodRequestCreate, 
     BloodRequestUpdate, 
     BloodRequestGroupResponse,
-    BloodRequestBulkCreateResponse
+    BloodRequestBulkCreateResponse,
+    RequestDirection
 )
+from app.schemas.inventory import PaginatedResponse
 import logging
 
 logger = logging.getLogger(__name__)
@@ -25,20 +28,20 @@ class BloodRequestService:
 
     async def create_bulk_request(self, data: BloodRequestCreate, requester_id: UUID) -> BloodRequestBulkCreateResponse:
         """Create requests to multiple facilities with intelligent grouping"""
-        
+
         # Validate facilities exist
         await self._validate_facilities(data.facility_ids)
-        
+
         # Generate group ID for related requests
         request_group_id = uuid4()
-        
+
         # Create requests for each facility
         created_requests = []
-        
+
         try:
             for idx, facility_id in enumerate(data.facility_ids):
                 is_master = idx == 0  # First request is the master
-                
+
                 new_request = BloodRequest(
                     requester_id=requester_id,
                     facility_id=facility_id,
@@ -48,14 +51,15 @@ class BloodRequestService:
                     blood_product=data.blood_product,
                     quantity_requested=data.quantity_requested,
                     notes=data.notes,
-                    status=RequestStatus.pending
+                    status=RequestStatus.pending,
+                    option="sent"  # Explicitly set option for sent requests
                 )
                 
                 self.db.add(new_request)
                 created_requests.append(new_request)
             
             await self.db.commit()
-            
+
             # Refresh all requests to get IDs
             for request in created_requests:
                 await self.db.refresh(request)
@@ -68,7 +72,7 @@ class BloodRequestService:
                 requests=created_requests,
                 message=f"Successfully created requests to {len(created_requests)} facilities"
             )
-            
+ 
         except Exception as e:
             await self.db.rollback()
             logger.error(f"Error creating bulk requests: {str(e)}")
@@ -106,13 +110,13 @@ class BloodRequestService:
             .order_by(BloodRequest.is_master_request.desc(), BloodRequest.created_at)
         )
         requests = result.scalars().all()
-        
+
         if not requests:
             return None
-        
+
         master_request = next((r for r in requests if r.is_master_request), requests[0])
         related_requests = [r for r in requests if not r.is_master_request]
-        
+
         # Calculate status counts
         status_counts = {
             'pending': sum(1 for r in requests if r.status == RequestStatus.pending),
@@ -240,15 +244,141 @@ class BloodRequestService:
         
         return groups
 
-    async def list_requests_by_facility(self, facility_id: UUID) -> List[BloodRequest]:
-        """List all requests for a specific facility"""
-        result = await self.db.execute(
-            select(BloodRequest)
-            .options(joinedload(BloodRequest.requester))
-            .where(BloodRequest.facility_id == facility_id)
-            .order_by(BloodRequest.created_at.desc())
+    async def list_requests_by_facility(
+        self, 
+        user_id: UUID, 
+        option: str = "all",
+        status: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 10
+    ) -> PaginatedResponse[BloodRequest]:
+        """List requests made by and/or received by facilities associated with the user with pagination"""
+        
+        # Get the user with their facility relationships
+        user_result = await self.db.execute(
+            select(User)
+            .options(
+                joinedload(User.facility),  # For facility_administrator
+                joinedload(User.work_facility)  # For staff/lab_manager
+            )
+            .where(User.id == user_id)
         )
-        return result.scalars().all()
+        user = user_result.scalar_one_or_none()
+        
+        if not user:
+            return PaginatedResponse(
+                items=[],
+                total_items=0,
+                total_pages=0,
+                current_page=page,
+                page_size=page_size,
+                has_next=False,
+                has_prev=False
+            )
+        
+        # Determine which facility the user is associated with
+        facility_id = None
+        if user.facility:  # User is facility_administrator
+            facility_id = user.facility.id
+        elif user.work_facility:  # User is staff or lab_manager
+            facility_id = user.work_facility.id
+        
+        if not facility_id:
+            return PaginatedResponse(
+                items=[],
+                total_items=0,
+                total_pages=0,
+                current_page=page,
+                page_size=page_size,
+                has_next=False,
+                has_prev=False
+            )
+        
+        # Build the base query conditions
+        conditions = []
+        
+        # Handle the option filter with proper logic
+        if option == "received":
+            # Requests received by this facility (facility_id matches and option is 'received')
+            conditions.append(BloodRequest.facility_id == facility_id)
+            conditions.append(BloodRequest.option == "received")
+        elif option == "sent":
+            # Requests sent by this user (requester_id matches and option is 'sent')
+            conditions.append(BloodRequest.requester_id == user_id)
+            conditions.append(BloodRequest.option == "sent")
+        else:  # "all"
+            # Both sent and received requests
+            conditions.append(
+                or_(
+                    and_(
+                        BloodRequest.facility_id == facility_id,
+                        BloodRequest.option == "received"
+                    ),
+                    and_(
+                        BloodRequest.requester_id == user_id,
+                        BloodRequest.option == "sent"
+                    )
+                )
+            )
+        
+        # Add status filter if provided
+        if status:
+            try:
+                # Validate status is a valid enum value
+                status_enum = RequestStatus(status)
+                conditions.append(BloodRequest.status == status_enum)
+            except ValueError:
+                # Invalid status provided, return empty result
+                return PaginatedResponse(
+                    items=[],
+                    total_items=0,
+                    total_pages=0,
+                    current_page=page,
+                    page_size=page_size,
+                    has_next=False,
+                    has_prev=False
+                )
+        
+        # Combine all conditions
+        final_condition = and_(*conditions) if len(conditions) > 1 else conditions[0]
+        
+        # Count total items
+        count_query = select(func.count(BloodRequest.id)).where(final_condition)
+        total_items_result = await self.db.execute(count_query)
+        total_items = total_items_result.scalar() or 0
+        
+        # Calculate pagination info
+        total_pages = ceil(total_items / page_size) if total_items > 0 else 0
+        offset = (page - 1) * page_size
+        
+        # Build the main query with pagination
+        query = (
+            select(BloodRequest)
+            .options(
+                joinedload(BloodRequest.facility),
+                joinedload(BloodRequest.requester),
+                joinedload(BloodRequest.fulfilled_by)
+            )
+            .where(final_condition)
+            .order_by(BloodRequest.created_at.desc())
+            .offset(offset)
+            .limit(page_size)
+        )
+        
+        result = await self.db.execute(query)
+        items = result.scalars().unique().all()
+        
+        logger.info(f"Fetched {len(items)} requests for user {user_id}, option: {option}, status: {status}")
+        
+        return PaginatedResponse(
+            items=items,
+            total_items=total_items,
+            total_pages=total_pages,
+            current_page=page,
+            page_size=page_size,
+            has_next=page < total_pages,
+            has_prev=page > 1
+        )
 
     async def list_requests_by_status(self, status: RequestStatus) -> List[BloodRequest]:
         """List requests by status"""

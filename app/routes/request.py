@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from typing import List, Optional
-
+from app.schemas.inventory import PaginatedResponse
 from app.models.user import User
 from app.dependencies import get_db
 from app.utils.security import get_current_user
@@ -11,7 +11,8 @@ from app.schemas.request import (
     BloodRequestUpdate, 
     BloodRequestResponse,
     BloodRequestGroupResponse,
-    BloodRequestBulkCreateResponse
+    BloodRequestBulkCreateResponse,
+    RequestDirection
 )
 from app.services.request import BloodRequestService
 from app.models.request import RequestStatus
@@ -39,13 +40,37 @@ async def create_blood_request(
     return await service.create_bulk_request(request_data, requester_id=current_user.id)
 
 
-@router.get("/", response_model=List[BloodRequestResponse])
+@router.get("/my-requests", response_model=List[BloodRequestResponse])
 async def list_my_requests(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)):
     """List all individual requests made by the current user"""
     service = BloodRequestService(db)
     return await service.list_requests_by_user(user_id=current_user.id)
+
+
+@router.get("/", response_model=PaginatedResponse[BloodRequestResponse])
+async def list_facility_requests(
+    option: Optional[RequestDirection] = Query(RequestDirection.ALL, description="Filter requests by direction: 'received', 'sent', or 'all'"),
+    status: Optional[RequestStatus] = Query(None, description="Filter by request status"),
+    page: int = Query(1, ge=1, description="Page number (starts from 1)"),
+    page_size: int = Query(10, ge=1, le=100, description="Number of items per page (max 100)"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)):
+    """
+    List requests made by and/or received by the current user's facility with pagination
+    - 'sent': Requests sent from this facility
+    - 'received': Requests received by this facility
+    - 'all': Both sent and received requests
+    """
+    service = BloodRequestService(db)
+    return await service.list_requests_by_facility(
+        user_id=current_user.id,
+        option=option.value if option else RequestDirection.ALL.value,
+        status=status.value if status else None,
+        page=page,
+        page_size=page_size
+    )
 
 
 @router.get("/groups", response_model=List[BloodRequestGroupResponse])
@@ -172,8 +197,8 @@ async def list_requests_by_status(
 
 
 # Routes for facility managers/staff
-@router.get("/facility/{facility_id}", response_model=List[BloodRequestResponse])
-async def list_facility_requests(
+@router.get("/facility/{facility_id}/requests", response_model=List[BloodRequestResponse])
+async def list_facility_requests_by_id(
     facility_id: UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)):

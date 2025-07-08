@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Enum, func, Text, Boolean
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Enum, func, Text, Boolean, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.db.base import Base
@@ -47,6 +47,7 @@ class BloodRequest(Base):
     requester = relationship("User", foreign_keys=[requester_id])
     fulfilled_by = relationship("User", foreign_keys=[fulfilled_by_id])
     facility = relationship("Facility")
+    option = Column(Enum("sent", "received", name="option"), server_default=text("'sent'"))
     
     def __repr__(self):
         return f"<BloodRequest(id={self.id}, requester_id={self.requester_id}, status={self.status}, group_id={self.request_group_id})>"

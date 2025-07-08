@@ -53,6 +53,11 @@ class RequestStatus(str, Enum):
     fulfilled = "fulfilled"
     cancelled = "cancelled"
 
+class RequestDirection(str, Enum):
+    """Enum for request direction filtering"""
+    RECEIVED = "received"
+    SENT = "sent"
+    ALL = "all"
 
 class BloodRequestCreate(BaseModel):
     blood_type: str = Field(..., description="Blood type (e.g., A+, B-, O+, AB-)")
@@ -79,6 +84,7 @@ class BloodRequestResponse(BaseModel):
     quantity_requested: int
     status: RequestStatus
     notes: Optional[str]
+    option: Optional[str]
     cancellation_reason: Optional[str]
     created_at: datetime
     updated_at: datetime
