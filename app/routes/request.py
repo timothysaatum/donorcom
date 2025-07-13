@@ -15,7 +15,7 @@ from app.schemas.request import (
     RequestDirection
 )
 from app.services.request import BloodRequestService
-from app.models.request import RequestStatus
+from app.models.request import RequestStatus, ProcessingStatus
 
 router = APIRouter(
     prefix="/requests",
@@ -49,10 +49,33 @@ async def list_my_requests(
     return await service.list_requests_by_user(user_id=current_user.id)
 
 
+# @router.get("/", response_model=PaginatedResponse[BloodRequestResponse])
+# async def list_facility_requests(
+#     option: Optional[RequestDirection] = Query(RequestDirection.ALL, description="Filter requests by direction: 'received', 'sent', or 'all'"),
+#     RequestStatus: Optional[RequestStatus] = Query(None, description="Filter by request status"),
+#     page: int = Query(1, ge=1, description="Page number (starts from 1)"),
+#     page_size: int = Query(10, ge=1, le=100, description="Number of items per page (max 100)"),
+#     db: AsyncSession = Depends(get_db),
+#     current_user: User = Depends(get_current_user)):
+#     """
+#     List requests made by and/or received by the current user's facility with pagination
+#     - 'sent': Requests sent from this facility
+#     - 'received': Requests received by this facility
+#     - 'all': Both sent and received requests
+#     """
+#     service = BloodRequestService(db)
+#     return await service.list_requests_by_facility(
+#         user_id=current_user.id,
+#         option=option.value if option else RequestDirection.ALL.value,
+#         request_status=RequestStatus.value if RequestStatus else None,
+#         page=page,
+#         page_size=page_size
+#     )
 @router.get("/", response_model=PaginatedResponse[BloodRequestResponse])
 async def list_facility_requests(
     option: Optional[RequestDirection] = Query(RequestDirection.ALL, description="Filter requests by direction: 'received', 'sent', or 'all'"),
-    status: Optional[RequestStatus] = Query(None, description="Filter by request status"),
+    request_status: Optional[RequestStatus] = Query(None, description="Filter by request status"),
+    processing_status: Optional[ProcessingStatus] = Query(None, description="Filter by processing status"),
     page: int = Query(1, ge=1, description="Page number (starts from 1)"),
     page_size: int = Query(10, ge=1, le=100, description="Number of items per page (max 100)"),
     db: AsyncSession = Depends(get_db),
@@ -62,15 +85,30 @@ async def list_facility_requests(
     - 'sent': Requests sent from this facility
     - 'received': Requests received by this facility
     - 'all': Both sent and received requests
+    
+    Filters:
+    - option: Direction of requests (sent/received/all)
+    - request_status: Status of the request (pending, accepted, rejected, cancelled)
+    - processing_status: Processing status (pending, dispatched, completed)
     """
+    # Import ProcessingStatus here to avoid circular imports
+    from app.models.request import ProcessingStatus
+    
     service = BloodRequestService(db)
-    return await service.list_requests_by_facility(
-        user_id=current_user.id,
-        option=option.value if option else RequestDirection.ALL.value,
-        status=status.value if status else None,
-        page=page,
-        page_size=page_size
-    )
+    
+    try:
+        result = await service.list_requests_by_facility(
+            user_id=current_user.id,
+            option=option.value if option else RequestDirection.ALL.value,
+            request_status=request_status.value if request_status else None,
+            processing_status=processing_status.value if processing_status else None,
+            page=page,
+            page_size=page_size
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Error in list_facility_requests: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/groups", response_model=List[BloodRequestGroupResponse])
@@ -79,7 +117,7 @@ async def list_my_request_groups(
     current_user: User = Depends(get_current_user)):
     """
     List request groups made by the current user.
-    
+
     This provides a more organized view of multi-facility requests,
     showing them as groups rather than individual requests.
     """

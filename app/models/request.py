@@ -6,13 +6,19 @@ from app.db.base import Base
 import enum
 
 
-class RequestStatus(str, enum.Enum):
-    pending = "pending"
-    approved = "approved"
-    rejected = "rejected"
-    fulfilled = "fulfilled"
-    cancelled = "cancelled"  # New status for auto-cancelled requests
+class ProcessingStatus(str, enum.Enum):
 
+    pending = "pending"
+    disptached = "dispatched"
+    completed = "completed"
+
+
+class RequestStatus(str, enum.Enum):
+
+    pending = "pending"
+    accepted = "accepted"
+    rejected = "rejected"
+    cancelled = "cancelled"
 
 class BloodRequest(Base):
     """Model representing a request for blood or blood products."""
@@ -34,9 +40,10 @@ class BloodRequest(Base):
     blood_type = Column(String(10), nullable=False)
     blood_product = Column(String(50), nullable=False)
     quantity_requested = Column(Integer, nullable=False)
-    status = Column(Enum(RequestStatus), default=RequestStatus.pending)
+    request_status = Column(Enum(RequestStatus), default=RequestStatus.pending)
+    processing_status = Column(Enum(ProcessingStatus), default=ProcessingStatus.pending)
     notes = Column(Text, nullable=True)
-    
+
     # Cancellation reason for auto-cancelled requests
     cancellation_reason = Column(String(200), nullable=True)
 
@@ -47,7 +54,7 @@ class BloodRequest(Base):
     requester = relationship("User", foreign_keys=[requester_id])
     fulfilled_by = relationship("User", foreign_keys=[fulfilled_by_id])
     facility = relationship("Facility")
-    option = Column(Enum("sent", "received", name="option"), server_default=text("'sent'"))
+    option = Column(Enum("sent", "received", "all", name="option"), server_default=text("'sent'"))
     
     def __repr__(self):
         return f"<BloodRequest(id={self.id}, requester_id={self.requester_id}, status={self.status}, group_id={self.request_group_id})>"
