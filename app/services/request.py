@@ -360,7 +360,7 @@ class BloodRequestService:
         if option == "received":
             # Requests received by this facility (facility_id matches and option is 'received')
             conditions.append(BloodRequest.facility_id == facility_id)
-            conditions.append(BloodRequest.option == "received")
+            conditions.append(BloodRequest.requester_id != user_id)
         elif option == "sent":
             # Requests sent by this user (requester_id matches and option is 'sent')
             conditions.append(BloodRequest.requester_id == user_id)
@@ -371,7 +371,7 @@ class BloodRequestService:
                 or_(
                     and_(
                         BloodRequest.facility_id == facility_id,
-                        BloodRequest.option == "received"
+                        BloodRequest.requester_id != user_id
                     ),
                     and_(
                         BloodRequest.requester_id == user_id,

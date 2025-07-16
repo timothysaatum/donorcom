@@ -14,9 +14,10 @@ from app.schemas.request import (
     BloodRequestBulkCreateResponse,
     RequestDirection
 )
+import logging
 from app.services.request import BloodRequestService
 from app.models.request import RequestStatus, ProcessingStatus
-
+logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/requests",
     tags=["requests"]
@@ -92,7 +93,7 @@ async def list_facility_requests(
     - processing_status: Processing status (pending, dispatched, completed)
     """
     # Import ProcessingStatus here to avoid circular imports
-    from app.models.request import ProcessingStatus
+    # from app.models.request import ProcessingStatus
     
     service = BloodRequestService(db)
     

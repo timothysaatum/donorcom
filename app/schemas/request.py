@@ -43,41 +43,43 @@ class BloodRequestCreate(BaseModel):
 class BloodRequestResponse(BaseModel):
     id: UUID
     requester_id: UUID
+    # Add requester name field
+    requester_name: Optional[str] = Field(None, description="Name of the person making the request")
     facility_id: UUID
     receiving_facility_name: str = Field(..., min_length=1, max_length=255)  # Relaxed constraints
     request_group_id: UUID
-    is_master_request: bool
+    # is_master_request: bool
     blood_type: str
     blood_product: str
     quantity_requested: int
     request_status: Optional[RequestStatus] = None
     processing_status: Optional[ProcessingStatus] = None
     notes: Optional[str] = None  # Make sure this is Optional
-    option: Optional[str] = None  # Make sure this is Optional
+    # option: Optional[str] = None  # Make sure this is Optional
     cancellation_reason: Optional[str] = None
-    
+   
     # Additional facility information
     requester_facility_name: Optional[str] = Field(None, description="Name of the facility making the request")
-    
+
     created_at: datetime
     updated_at: datetime
-
+    
     class Config:
         from_attributes = True
-
+    
     @classmethod
     def from_orm_with_facility_names(cls, blood_request):
-        """Create response with facility names populated"""
-        
+        """Create response with facility names and requester name populated"""
+       
         # Get receiving facility name (where request is sent to)
         receiving_facility_name = "Unknown Facility"  # Default value
         if blood_request.facility:
             receiving_facility_name = blood_request.facility.facility_name or "Unknown Facility"
-        
+       
         # Ensure minimum length requirement is met
         if len(receiving_facility_name) < 1:
             receiving_facility_name = "Unknown Facility"
-
+            
         # Get requester's facility name (the facility making the request)
         requester_facility_name = None
         if blood_request.requester:
@@ -86,27 +88,45 @@ class BloodRequestResponse(BaseModel):
             elif blood_request.requester.work_facility:  # For staff/lab managers
                 requester_facility_name = blood_request.requester.work_facility.facility_name
         
-        # Create the response with all the original fields plus facility names
+        # Get requester's name
+        requester_name = None
+        if blood_request.requester:
+            # Assuming User model has first_name and last_name fields
+            if hasattr(blood_request.requester, 'first_name') and hasattr(blood_request.requester, 'last_name'):
+                first_name = blood_request.requester.first_name or ""
+                last_name = blood_request.requester.last_name or ""
+                requester_name = f"{first_name} {last_name}".strip()
+                # If both names are empty, set to None
+                if not requester_name:
+                    requester_name = None
+            # Alternative: if User model has a 'name' or 'full_name' field
+            elif hasattr(blood_request.requester, 'name'):
+                requester_name = blood_request.requester.name
+            # Alternative: if User model has a 'username' field as fallback
+            elif hasattr(blood_request.requester, 'username'):
+                requester_name = blood_request.requester.username
+       
+        # Create the response with all the original fields plus facility names and requester name
         return cls(
             id=blood_request.id,
             requester_id=blood_request.requester_id,
             facility_id=blood_request.facility_id,
             receiving_facility_name=receiving_facility_name,
             request_group_id=blood_request.request_group_id,
-            is_master_request=blood_request.is_master_request,
+            # is_master_request=blood_request.is_master_request,
             blood_type=blood_request.blood_type,
             blood_product=blood_request.blood_product,
             quantity_requested=blood_request.quantity_requested,
             request_status=blood_request.request_status,
             processing_status=blood_request.processing_status,
             notes=blood_request.notes,
-            option=blood_request.option,
+            # option=blood_request.option,
             cancellation_reason=blood_request.cancellation_reason,
             requester_facility_name=requester_facility_name,
+            requester_name=requester_name,
             created_at=blood_request.created_at,
             updated_at=blood_request.updated_at
         )
-        # Ensure all fields are populated correctly
         
 
 class BloodRequestGroupResponse(BaseModel):
