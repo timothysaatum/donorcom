@@ -1,18 +1,18 @@
 import pytest
-import asyncio
+# import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
-from fastapi import HTTPException, Response
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
+# from sqlalchemy.future import select
 from datetime import datetime, timedelta, timezone
-from uuid import uuid4, UUID
+from uuid import uuid4
 from jose import jwt
 
 # Import your modules
 from app.models.user import User
-from app.models.health_facility import Facility
-from app.schemas.user import UserCreate, UserUpdate, LoginSchema, AuthResponse, UserWithFacility
+# from app.models.health_facility import Facility
+from app.schemas.user import UserCreate, UserUpdate#, LoginSchema, AuthResponse, UserWithFacility
 from app.services.user_service import UserService
 from app.routes.auth import TokenManager, router as auth_router
 from app.routes.users import router as users_router
