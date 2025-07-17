@@ -149,11 +149,14 @@ class BloodRequestService:
                 detail=f"Facilities not found: {list(missing_ids)}"
             )
 
-    async def get_request(self, request_id: UUID) -> Optional[BloodRequest]:
-        """Get a single request by ID"""
+    async def get_request(self, request_id: UUID):
         result = await self.db.execute(
             select(BloodRequest)
-            .options(joinedload(BloodRequest.facility))
+            .options(
+                joinedload(BloodRequest.requester).joinedload(User.facility),
+                joinedload(BloodRequest.requester).joinedload(User.work_facility),
+                joinedload(BloodRequest.facility)
+            )
             .where(BloodRequest.id == request_id)
         )
         return result.scalar_one_or_none()

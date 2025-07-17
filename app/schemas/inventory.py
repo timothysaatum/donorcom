@@ -26,7 +26,7 @@ class BloodInventoryCreate(BaseModel):
 
     @field_validator('blood_product')
     def validate_blood_product(cls, v):
-        valid_products = ['Whole Blood', 'Red Blood Cells', 'Plasma', 'Platelets', 'Cryoprecipitate']
+        valid_products = ['Whole Blood', 'Red Blood Cells', 'Plasma', 'Platelets', 'Cryoprecipitate', 'Fresh Frozen Plasma', 'Albumin']
         if v not in valid_products:
             raise ValueError(f'Blood product must be one of: {", ".join(valid_products)}')
         return v

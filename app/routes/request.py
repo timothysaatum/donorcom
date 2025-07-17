@@ -157,18 +157,24 @@ async def get_request_group(
 async def get_blood_request(
     request_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
-    """Get a specific blood request by ID"""
+    current_user: User = Depends(get_current_user)
+):
     service = BloodRequestService(db)
     request = await service.get_request(request_id)
     if not request:
         raise HTTPException(status_code=404, detail="Request not found")
-    
-    # Verify ownership
-    if request.requester_id != current_user.id:
+
+    is_requester = request.requester_id == current_user.id
+    is_same_facility = (
+        request.facility_id == current_user.work_facility_id
+        or (current_user.facility and request.facility_id == current_user.facility.id)
+    )
+
+    if not is_requester and not is_same_facility:
         raise HTTPException(status_code=403, detail="Not authorized to view this request")
-    
-    return request
+
+    return BloodRequestResponse.from_orm_with_facility_names(request)
+
 
 
 @router.patch("/{request_id}", response_model=BloodRequestResponse)
