@@ -14,10 +14,10 @@ from app.models.user import User
 from app.models.health_facility import Facility
 from app.schemas.user import UserCreate, UserUpdate, LoginSchema, AuthResponse, UserWithFacility
 from app.services.user_service import UserService
-from app.auth import TokenManager, router as auth_router
+from app.routes.auth import TokenManager, router as auth_router
 from app.routes.users import router as users_router
 from app.utils.security import get_password_hash, verify_password, create_verification_token
-
+pytestmark = pytest.mark.asyncio
 
 class TestTokenManager:
     """Test cases for TokenManager class"""
@@ -107,7 +107,7 @@ class TestUserService:
     @pytest.fixture
     def sample_user_data(self):
         return UserCreate(
-            email="test@example.com",
+            email="healfibre@gmail.com",
             first_name="John",
             last_name="Doe",
             password="Password123",
@@ -120,7 +120,7 @@ class TestUserService:
     def sample_user(self):
         return User(
             id=self.sample_user_id,
-            email="test@example.com",
+            email="healfibre@gmail.com",
             first_name="John",
             last_name="Doe",
             password=get_password_hash("Password123"),
@@ -172,7 +172,7 @@ class TestUserService:
             mock_verify.return_value = True
             mock_token.return_value = "access_token"
             
-            result = await self.user_service.authenticate_user("test@example.com", "Password123")
+            result = await self.user_service.authenticate_user("healfibre@gmail.com", "Password123")
             
             assert "access_token" in result
             assert "user" in result
@@ -187,7 +187,7 @@ class TestUserService:
         self.db_mock.execute.return_value.scalar_one_or_none.return_value = None
         
         with pytest.raises(HTTPException) as exc_info:
-            await self.user_service.authenticate_user("test@example.com", "wrong_password")
+            await self.user_service.authenticate_user("healfibre@gmail.com", "wrong_password")
         
         assert exc_info.value.status_code == 401
         assert "Invalid credentials" in str(exc_info.value.detail)
@@ -201,7 +201,7 @@ class TestUserService:
             mock_verify.return_value = True
             
             with pytest.raises(HTTPException) as exc_info:
-                await self.user_service.authenticate_user("test@example.com", "Password123")
+                await self.user_service.authenticate_user("healfibre@gmail.com", "Password123")
             
             assert exc_info.value.status_code == 400
             assert "User email not verified" in str(exc_info.value.detail)
@@ -294,7 +294,7 @@ class TestAuthEndpoints:
     def sample_user(self):
         return User(
             id=self.sample_user_id,
-            email="test@example.com",
+            email="healfibre@gmail.com",
             first_name="John",
             last_name="Doe",
             password=get_password_hash("Password123"),
@@ -307,7 +307,7 @@ class TestAuthEndpoints:
     @pytest.fixture
     def login_data(self):
         return {
-            "email": "test@example.com",
+            "email": "healfibre@gmail.com",
             "password": "Password123"
         }
     
@@ -430,7 +430,7 @@ class TestUserEndpoints:
     def sample_user(self):
         return User(
             id=self.sample_user_id,
-            email="test@example.com",
+            email="healfibre@gmail.com",
             first_name="John",
             last_name="Doe",
             password=get_password_hash("Password123"),
@@ -648,7 +648,7 @@ class TestEmailVerification:
     def sample_user(self):
         return User(
             id=self.sample_user_id,
-            email="test@example.com",
+            email="healfibre@gmail.com",
             first_name="John",
             last_name="Doe",
             is_verified=False,
@@ -702,36 +702,111 @@ class TestEmailVerification:
             assert "Invalid request" in response.json()["detail"]
 
 
-# Integration Test Examples
 class TestIntegration:
     """Integration tests for the complete authentication flow"""
-    
+
     def setup_method(self):
-        self.client = TestClient(auth_router)
-        self.sample_user_id = uuid4()
-    
+        self.client = TestClient(users_router)
+        self.auth_client = TestClient(auth_router)
+
     async def test_complete_auth_flow(self):
-        """Test complete authentication flow: register -> verify -> login -> refresh -> logout"""
-        # This would be a more complex integration test that tests the entire flow
-        # You would need to set up a test database and mock email sending
-        pass
-    
+        """Test complete flow: register -> verify -> login -> refresh -> logout"""
+
+        email = "flow@example.com"
+        password = "Password123"
+
+        # 1. Register user
+        register_data = {
+            "email": email,
+            "first_name": "Flow",
+            "last_name": "User",
+            "password": password,
+            "password_confirm": password,
+            "role": "staff",
+            "phone": "1234567890"
+        }
+
+        with patch('app.dependencies.get_db'), \
+             patch('app.utils.security.get_password_hash', return_value="hashed_password"), \
+             patch('app.utils.security.create_verification_token', return_value="test_token"), \
+             patch('app.utils.email_verification.send_verification_email'):
+            
+            reg_response = self.client.post("/users/register", json=register_data)
+            assert reg_response.status_code == 201
+
+        # 2. Simulate email verification
+        with patch.dict("os.environ", {"SECRET_KEY": "test-secret", "ALGORITHM": "HS256"}), \
+             patch('app.dependencies.get_db'):
+            
+            token = jwt.encode({"sub": email}, "test-secret", algorithm="HS256")
+            verify_response = self.client.get(f"/users/verify-email?token={token}")
+            assert verify_response.status_code == 200
+
+        # 3. Login
+        login_data = {"email": email, "password": password}
+        with patch('app.dependencies.get_db'), \
+             patch('app.services.user_service.UserService.authenticate_user', return_value={
+                 "access_token": "access",
+                 "user": {"id": str(uuid4()), "email": email}
+             }):
+            login_response = self.auth_client.post("/users/auth/login", json=login_data)
+            assert login_response.status_code == 200
+            assert "access_token" in login_response.json()["data"]
+
+        # 4. Refresh token (simulate refresh_token in cookie)
+        with patch('app.dependencies.get_db'), \
+             patch('app.services.user_service.UserService.get_user'), \
+             patch.dict("os.environ", {"SECRET_KEY": "test-secret", "ALGORITHM": "HS256"}):
+            
+            refresh_token = TokenManager.create_refresh_token(uuid4())
+            refresh_response = self.auth_client.get(
+                "/users/auth/refresh",
+                cookies={"refresh_token": refresh_token}
+            )
+            assert refresh_response.status_code == 200
+            assert "access_token" in refresh_response.json()["data"]
+
+        # 5. Logout
+        logout_response = self.auth_client.post("/users/auth/logout")
+        assert logout_response.status_code == 200
+        assert logout_response.json()["data"]["message"] == "Logged out successfully"
+
     async def test_role_based_access_control(self):
-        """Test role-based access control across different endpoints"""
-        # Test that different roles can access appropriate endpoints
-        pass
+        """Test RBAC across endpoints"""
+        # Mock with facility admin trying to create staff
+        with patch('app.utils.security.get_current_user') as mock_user:
+            mock_user.return_value = User(
+                id=uuid4(), role="facility_administrator", email="admin@example.com"
+            )
+
+            user_data = {
+                "email": "staff@example.com",
+                "first_name": "Staff",
+                "last_name": "User",
+                "password": "Password123",
+                "password_confirm": "Password123",
+                "role": "staff",
+                "phone": "1234567890"
+            }
+
+            with patch('app.dependencies.get_db'), \
+                 patch('app.services.user_service.UserService.create_user'):
+                res = self.client.post("/users/staff/create", json=user_data)
+                assert res.status_code in (201, 200)
 
 
-# Performance Tests
 class TestPerformance:
     """Performance tests for authentication system"""
-    
+
     def test_token_generation_performance(self):
-        """Test token generation performance"""
+        """Test access token generation performance for 1000 tokens"""
         import time
-        
+
         start_time = time.time()
-        
-        # Generate 1000 tokens
         for _ in range(1000):
-            with patch.dict('os.environ', {'SECRET_KEY':
+            TokenManager.create_access_token({"sub": str(uuid4())})
+        end_time = time.time()
+
+        duration = end_time - start_time
+        assert duration < 5  # It should not take more than 5 seconds
+        print(f"Generated 1000 tokens in {duration:.2f} seconds")

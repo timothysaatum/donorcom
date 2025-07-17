@@ -49,7 +49,7 @@ class BloodRequest(Base):
     quantity_requested = Column(Integer, nullable=False)
     request_status = Column(Enum(RequestStatus), default=RequestStatus.pending)
     processing_status = Column(Enum(ProcessingStatus), default=ProcessingStatus.pending)
-    # priority = Column(Enum(PriorityStatus), nullable=True, default=PriorityStatus.not_urgent)
+    priority = Column(Enum(PriorityStatus), nullable=True, default=PriorityStatus.not_urgent)
     notes = Column(Text, nullable=True)
 
     # Cancellation reason for auto-cancelled requests
