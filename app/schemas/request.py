@@ -11,6 +11,10 @@ class ProcessingStatus(str, Enum):
     disptached = "dispatched"
     completed = "completed"
 
+class PriorityStatus(str, Enum):
+
+    urgent = "urgent"
+    not_urgent = "not urgent"
 
 class RequestStatus(str, Enum):
 
@@ -32,6 +36,7 @@ class BloodRequestCreate(BaseModel):
     quantity_requested: int = Field(..., gt=0, description="Quantity of blood product needed")
     facility_ids: List[UUID] = Field(..., min_items=1, max_items=10, description="List of facility IDs to send request to")
     notes: Optional[str] = Field(None, description="Additional notes or requirements")
+    priority: Optional[str] = Field(None, description="Add request priority", example="urgent")
 
     @field_validator("facility_ids")
     def validate_facility_ids(cls, v):
@@ -46,7 +51,7 @@ class BloodRequestResponse(BaseModel):
     # Add requester name field
     requester_name: Optional[str] = Field(None, description="Name of the person making the request")
     facility_id: UUID
-    receiving_facility_name: str = Field(..., min_length=1, max_length=255)  # Relaxed constraints
+    receiving_facility_name: str = Field(..., min_length=1, max_length=255)
     request_group_id: UUID
     # is_master_request: bool
     blood_type: str
@@ -54,8 +59,8 @@ class BloodRequestResponse(BaseModel):
     quantity_requested: int
     request_status: Optional[RequestStatus] = None
     processing_status: Optional[ProcessingStatus] = None
-    notes: Optional[str] = None  # Make sure this is Optional
-    # option: Optional[str] = None  # Make sure this is Optional
+    notes: Optional[str] = None
+    priority: Optional[str] = None
     cancellation_reason: Optional[str] = None
    
     # Additional facility information
@@ -120,7 +125,7 @@ class BloodRequestResponse(BaseModel):
             request_status=blood_request.request_status,
             processing_status=blood_request.processing_status,
             notes=blood_request.notes,
-            # option=blood_request.option,
+            priority=blood_request.priority,
             cancellation_reason=blood_request.cancellation_reason,
             requester_facility_name=requester_facility_name,
             requester_name=requester_name,

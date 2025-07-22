@@ -50,28 +50,6 @@ async def list_my_requests(
     return await service.list_requests_by_user(user_id=current_user.id)
 
 
-# @router.get("/", response_model=PaginatedResponse[BloodRequestResponse])
-# async def list_facility_requests(
-#     option: Optional[RequestDirection] = Query(RequestDirection.ALL, description="Filter requests by direction: 'received', 'sent', or 'all'"),
-#     RequestStatus: Optional[RequestStatus] = Query(None, description="Filter by request status"),
-#     page: int = Query(1, ge=1, description="Page number (starts from 1)"),
-#     page_size: int = Query(10, ge=1, le=100, description="Number of items per page (max 100)"),
-#     db: AsyncSession = Depends(get_db),
-#     current_user: User = Depends(get_current_user)):
-#     """
-#     List requests made by and/or received by the current user's facility with pagination
-#     - 'sent': Requests sent from this facility
-#     - 'received': Requests received by this facility
-#     - 'all': Both sent and received requests
-#     """
-#     service = BloodRequestService(db)
-#     return await service.list_requests_by_facility(
-#         user_id=current_user.id,
-#         option=option.value if option else RequestDirection.ALL.value,
-#         request_status=RequestStatus.value if RequestStatus else None,
-#         page=page,
-#         page_size=page_size
-#     )
 @router.get("/", response_model=PaginatedResponse[BloodRequestResponse])
 async def list_facility_requests(
     option: Optional[RequestDirection] = Query(RequestDirection.ALL, description="Filter requests by direction: 'received', 'sent', or 'all'"),
@@ -92,8 +70,6 @@ async def list_facility_requests(
     - request_status: Status of the request (pending, accepted, rejected, cancelled)
     - processing_status: Processing status (pending, dispatched, completed)
     """
-    # Import ProcessingStatus here to avoid circular imports
-    # from app.models.request import ProcessingStatus
     
     service = BloodRequestService(db)
     
@@ -271,7 +247,7 @@ async def respond_to_request(
     Allow facility staff to respond to a blood request.
     
     This endpoint is designed for facility managers/staff to approve,
-    reject, or fulfill requests made to their facility.
+    reject, or accept requests made to their facility.
     """
     service = BloodRequestService(db)
     
@@ -283,8 +259,11 @@ async def respond_to_request(
     # Note: Add authorization logic here to ensure only facility staff
     # can respond to requests made to their facility
     
-    # Set the fulfilled_by field if status is being set to fulfilled
-    if response_data.status == RequestStatus.fulfilled:
+    # Set the fulfilled_by field if status is being set to accepted (not fulfilled)
+    if response_data.request_status == RequestStatus.accepted:  # Fixed
         response_data.fulfilled_by_id = current_user.id
     
-    return await service.update_request(request_id, response_data)
+    updated_request = await service.update_request(request_id, response_data)
+    
+    # Convert to response model properly
+    return BloodRequestResponse.from_orm_with_facility_names(updated_request)

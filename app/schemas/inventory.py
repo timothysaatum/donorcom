@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator, ConfigDict, FieldValidationInfo
+from pydantic import BaseModel, Field, field_validator, ConfigDict, ValidationInfo
 from uuid import UUID
 from datetime import datetime, date
 from typing import Optional, List, Generic, TypeVar, Any, Dict
@@ -14,7 +14,6 @@ class BloodInventoryCreate(BaseModel):
     blood_product: str = Field(..., min_length=1, max_length=50, description="Blood product type")
     blood_type: str = Field(..., min_length=1, max_length=10, description="Blood type (e.g., A+, B-, O+)")
     quantity: int = Field(..., gt=0, description="Quantity in units")
-    # expires_in_days: int = Field(..., gt=0, le=365, description="Number of days until this blood unit expires")
     expiry_date: date = Field(..., description="Expiration date of the blood unit")
 
     @field_validator('blood_type')
@@ -56,7 +55,7 @@ class BloodInventoryUpdate(BaseModel):
 
 
 class BloodInventoryBatchCreate(BaseModel):
-    blood_units: List[BloodInventoryCreate] = Field(..., min_items=1, max_items=1000)
+    blood_units: List[BloodInventoryCreate] = Field(..., min_length=1, max_length=1000)
     
     @field_validator('blood_units')
     def validate_batch_size(cls, v):
@@ -66,7 +65,7 @@ class BloodInventoryBatchCreate(BaseModel):
 
 
 class BloodInventoryBatchUpdate(BaseModel):
-    updates: List[Dict[str, Any]] = Field(..., min_items=1, max_items=1000)
+    updates: List[Dict[str, Any]] = Field(..., min_length=1, max_length=1000)
     
     @field_validator('updates')
     def validate_updates(cls, v):
@@ -77,10 +76,11 @@ class BloodInventoryBatchUpdate(BaseModel):
 
 
 class BloodInventoryBatchDelete(BaseModel):
-    unit_ids: List[UUID] = Field(..., min_items=1, max_items=1000)
+    unit_ids: List[UUID] = Field(..., min_length=1, max_length=1000)
 
 
 class BloodInventoryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     blood_product: str
@@ -91,22 +91,9 @@ class BloodInventoryResponse(BaseModel):
     added_by_id: Optional[UUID]
     created_at: datetime
     updated_at: datetime
-    # expires_in_days: Optional[int] = None
-
-    class Config:
-        from_attributes = True
-
-    # @field_validator('expires_in_days', mode='before')
-    # def calculate_days_left(cls, _, info: FieldValidationInfo):
-    #     # print('Printing info', info.data)
-    #     expiry_date = info.data.get("expiry_date")
-    #     if expiry_date:
-    #         return (expiry_date - date.today()).days
-    #     return None
 
 
 class BloodInventoryDetailResponse(BloodInventoryResponse):
-
     blood_bank_name: Optional[str] = None
     added_by_name: Optional[str] = None
 
@@ -132,6 +119,7 @@ class PaginationParams(BaseModel):
 T = TypeVar('T')
 
 class PaginatedResponse(BaseModel, Generic[T]):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     items: List[T]
     total_items: int
@@ -141,13 +129,8 @@ class PaginatedResponse(BaseModel, Generic[T]):
     has_next: bool
     has_prev: bool
 
-    # class Config:
-    #     from_attributes = True
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
 
 class BloodInventoryFilter(BaseModel):
-
     blood_bank_id: Optional[UUID] = None
     blood_type: Optional[str] = None
     blood_product: Optional[str] = None
@@ -158,7 +141,6 @@ class BloodInventoryFilter(BaseModel):
 
 
 class BatchOperationResponse(BaseModel):
-    
     success: bool
     processed_count: int
     failed_count: int = 0
@@ -167,7 +149,6 @@ class BatchOperationResponse(BaseModel):
 
 
 class InventoryStatistics(BaseModel):
-
     total_units: int
     total_quantity: int
     blood_type_distribution: List[Dict[str, Any]]
@@ -207,21 +188,21 @@ class BloodInventorySearchParams(BaseModel):
         return v
 
     @field_validator('max_quantity')
-    def validate_quantity_range(cls, v, info: FieldValidationInfo):
+    def validate_quantity_range(cls, v, info: ValidationInfo):
         min_q = info.data.get('min_quantity')
         if v is not None and min_q is not None and v < min_q:
             raise ValueError('max_quantity must be greater than or equal to min_quantity')
         return v
 
     @field_validator('expiry_date_to')
-    def validate_expiry_date_range(cls, v, info: FieldValidationInfo):
+    def validate_expiry_date_range(cls, v, info: ValidationInfo):
         date_from = info.data.get('expiry_date_from')
         if v is not None and date_from is not None and v < date_from:
             raise ValueError('expiry_date_to must be greater than or equal to expiry_date_from')
         return v
 
     @field_validator('created_to')
-    def validate_created_date_range(cls, v, info: FieldValidationInfo):
+    def validate_created_date_range(cls, v, info: ValidationInfo):
         created_from = info.data.get('created_from')
         if v is not None and created_from is not None and v < created_from:
             raise ValueError('created_to must be greater than or equal to created_from')
