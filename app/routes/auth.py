@@ -2,20 +2,15 @@ from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import datetime
 import os
-
-from jose import jwt, JWTError
-from passlib.context import CryptContext
 from uuid import UUID, uuid4
-
 from app.models import User
 from app.schemas.user import AuthResponse, LoginSchema
 from app.dependencies import get_db
 from app.services.user_service import UserService
 from app.utils.email_verification import send_verification_email
-from app.utils.security import create_verification_token
+from app.utils.security import create_verification_token, TokenManager
 from app.utils.data_wrapper import DataWrapper
 
 # JWT and Token Configuration
@@ -24,78 +19,6 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 180
 REFRESH_TOKEN_EXPIRE_DAYS = 7
 
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# class TokenManager:
-#     @staticmethod
-#     def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-#         """Create a JWT access token"""
-#         to_encode = data.copy()
-#         expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-#         to_encode.update({"exp": expire, "type": "access"})
-#         return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-#     @staticmethod
-#     def create_refresh_token(user_id: UUID) -> str:
-#         """Create a refresh token"""
-#         expires = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-#         to_encode = {
-#             "sub": str(user_id),
-#             "exp": expires,
-#             "type": "refresh",
-#             "jti": str(uuid4())  # Unique identifier for the token
-#         }
-#         return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-#     @staticmethod
-#     def decode_token(token: str) -> dict:
-#         """Decode and verify a JWT token"""
-#         try:
-#             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-#             return payload
-#         except JWTError as e:
-#             raise ValueError("Invalid or expired token") from e
-class TokenManager:
-    @staticmethod
-    def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-        """Create a JWT access token"""
-        secret_key = os.getenv("SECRET_KEY")
-        algorithm = os.getenv("ALGORITHM", "HS256")
-
-        to_encode = data.copy()
-        expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
-        to_encode.update({"exp": expire, "type": "access"})
-
-        return jwt.encode(to_encode, secret_key, algorithm=algorithm)
-
-    @staticmethod
-    def create_refresh_token(user_id: UUID) -> str:
-        """Create a refresh token"""
-        secret_key = os.getenv("SECRET_KEY")
-        algorithm = os.getenv("ALGORITHM", "HS256")
-
-        expires = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-        to_encode = {
-            "sub": str(user_id),
-            "exp": expires,
-            "type": "refresh",
-            "jti": str(uuid4())
-        }
-
-        return jwt.encode(to_encode, secret_key, algorithm=algorithm)
-
-    @staticmethod
-    def decode_token(token: str) -> dict:
-        """Decode and verify a JWT token"""
-        secret_key = os.getenv("SECRET_KEY")
-        algorithm = os.getenv("ALGORITHM", "HS256")
-
-        try:
-            payload = jwt.decode(token, secret_key, algorithms=[algorithm])
-            return payload
-        except JWTError as e:
-            raise ValueError("Invalid or expired token") from e
 
 # Authentication Router
 router = APIRouter(

@@ -8,7 +8,8 @@ from app.dependencies import get_db
 from app.utils.security import get_current_user
 from app.schemas.request import (
     BloodRequestCreate, 
-    BloodRequestUpdate, 
+    BloodRequestUpdate,
+    BloodRequestStatusUpdate, 
     BloodRequestResponse,
     BloodRequestGroupResponse,
     BloodRequestBulkCreateResponse,
@@ -240,7 +241,7 @@ async def list_facility_requests_by_id(
 @router.patch("/facility/{request_id}/respond", response_model=BloodRequestResponse)
 async def respond_to_request(
     request_id: UUID,
-    response_data: BloodRequestUpdate,
+    response_data: BloodRequestStatusUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)):
     """
@@ -261,7 +262,7 @@ async def respond_to_request(
     
     # Set the fulfilled_by field if status is being set to accepted (not fulfilled)
     if response_data.request_status == RequestStatus.accepted:  # Fixed
-        response_data.fulfilled_by_id = current_user.id
+        response_data = response_data.model_copy(update={"fulfilled_by_id": current_user.id})
     
     updated_request = await service.update_request(request_id, response_data)
     

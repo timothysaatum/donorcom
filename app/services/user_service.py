@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from app.models.user import User
 from app.models.health_facility import Facility
 from app.schemas.user import UserCreate, UserWithFacility, UserUpdate
-from app.utils.security import get_password_hash, verify_password, create_access_token, create_verification_token
+from app.utils.security import get_password_hash, verify_password, TokenManager, create_verification_token
 from datetime import datetime, timedelta
 from typing import Optional, List
 from uuid import UUID
@@ -78,7 +78,7 @@ class UserService:
         await self.db.commit()
 
         token_data = {"sub": str(user.id), "email": user.email}
-        access_token = create_access_token(data=token_data, expires_delta=timedelta(minutes=60))
+        access_token = TokenManager.create_access_token(data=token_data, expires_delta=timedelta(minutes=60))
 
         user_data = UserWithFacility.model_validate(user, from_attributes=True).model_dump()
 

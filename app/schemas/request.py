@@ -1,9 +1,11 @@
 from pydantic import BaseModel, Field, field_validator
-from uuid import UUID
+from uuid import UUID, uuid4
 from datetime import datetime
 from enum import Enum
 from typing import List, Optional
+import logging
 
+logger = logging.getLogger(__name__)
 
 class ProcessingStatus(str, Enum):
 
@@ -44,16 +46,13 @@ class BloodRequestCreate(BaseModel):
             raise ValueError("Duplicate facility IDs are not allowed")
         return v
 
-
 class BloodRequestResponse(BaseModel):
     id: UUID
     requester_id: UUID
-    # Add requester name field
     requester_name: Optional[str] = Field(None, description="Name of the person making the request")
     facility_id: UUID
-    receiving_facility_name: str = Field(..., min_length=1, max_length=255)
+    receiving_facility_name: Optional[str] = Field(None, min_length=1, max_length=255)
     request_group_id: UUID
-    # is_master_request: bool
     blood_type: str
     blood_product: str
     quantity_requested: int
@@ -75,64 +74,114 @@ class BloodRequestResponse(BaseModel):
     @classmethod
     def from_orm_with_facility_names(cls, blood_request):
         """Create response with facility names and requester name populated"""
-       
-        # Get receiving facility name (where request is sent to)
-        receiving_facility_name = "Unknown Facility"  # Default value
-        if blood_request.facility:
-            receiving_facility_name = blood_request.facility.facility_name or "Unknown Facility"
-       
-        # Ensure minimum length requirement is met
-        if len(receiving_facility_name) < 1:
-            receiving_facility_name = "Unknown Facility"
+    
+        # Initialize with default value to ensure field is always set
+        receiving_facility_name = "Unknown Facility"
+    
+        try:
+            # Get receiving facility name (where request is sent to)
+            if (blood_request.facility and 
+            hasattr(blood_request.facility, 'facility_name') and 
+            blood_request.facility.facility_name):
             
+                facility_name = str(blood_request.facility.facility_name).strip()
+                if facility_name:  # Check if not empty after stripping
+                    receiving_facility_name = facility_name
+        except (AttributeError, TypeError) as e:
+            logger.warning(f"Error accessing facility name for request {getattr(blood_request, 'id', 'unknown')}: {e}")
+            # receiving_facility_name remains "Unknown Facility"
         # Get requester's facility name (the facility making the request)
         requester_facility_name = None
-        if blood_request.requester:
-            if blood_request.requester.facility:  # For facility administrators
-                requester_facility_name = blood_request.requester.facility.facility_name
-            elif blood_request.requester.work_facility:  # For staff/lab managers
-                requester_facility_name = blood_request.requester.work_facility.facility_name
-        
+        try:
+            if blood_request.requester:
+                # Try facility first (for administrators)
+                if (hasattr(blood_request.requester, 'facility') and 
+                    blood_request.requester.facility and
+                    hasattr(blood_request.requester.facility, 'facility_name') and
+                    blood_request.requester.facility.facility_name):
+                    requester_facility_name = str(blood_request.requester.facility.facility_name).strip() or None
+            
+                # Try work_facility if facility didn't work (for staff/lab managers)
+                elif (hasattr(blood_request.requester, 'work_facility') and 
+                    blood_request.requester.work_facility and
+                    hasattr(blood_request.requester.work_facility, 'facility_name') and
+                    blood_request.requester.work_facility.facility_name):
+                    requester_facility_name = str(blood_request.requester.work_facility.facility_name).strip() or None
+                
+        except (AttributeError, TypeError) as e:
+            logger.warning(f"Error accessing requester facility name for request {getattr(blood_request, 'id', 'unknown')}: {e}")
+    
         # Get requester's name
         requester_name = None
-        if blood_request.requester:
-            # Assuming User model has first_name and last_name fields
-            if hasattr(blood_request.requester, 'first_name') and hasattr(blood_request.requester, 'last_name'):
-                first_name = blood_request.requester.first_name or ""
-                last_name = blood_request.requester.last_name or ""
-                requester_name = f"{first_name} {last_name}".strip()
-                # If both names are empty, set to None
-                if not requester_name:
-                    requester_name = None
-            # Alternative: if User model has a 'name' or 'full_name' field
-            elif hasattr(blood_request.requester, 'name'):
-                requester_name = blood_request.requester.name
-            # Alternative: if User model has a 'username' field as fallback
-            elif hasattr(blood_request.requester, 'username'):
-                requester_name = blood_request.requester.username
-       
-        # Create the response with all the original fields plus facility names and requester name
-        return cls(
-            id=blood_request.id,
-            requester_id=blood_request.requester_id,
-            facility_id=blood_request.facility_id,
-            receiving_facility_name=receiving_facility_name,
-            request_group_id=blood_request.request_group_id,
-            # is_master_request=blood_request.is_master_request,
-            blood_type=blood_request.blood_type,
-            blood_product=blood_request.blood_product,
-            quantity_requested=blood_request.quantity_requested,
-            request_status=blood_request.request_status,
-            processing_status=blood_request.processing_status,
-            notes=blood_request.notes,
-            priority=blood_request.priority,
-            cancellation_reason=blood_request.cancellation_reason,
+        try:
+            if blood_request.requester:
+                first_name = getattr(blood_request.requester, 'first_name', '') or ""
+                last_name = getattr(blood_request.requester, 'last_name', '') or ""
+            
+                if first_name or last_name:
+                    requester_name = f"{first_name} {last_name}".strip()
+                    if not requester_name:  # Both were empty strings
+                        requester_name = None
+                else:
+                    # Try alternative name fields
+                    requester_name = (getattr(blood_request.requester, 'name', None) or 
+                                getattr(blood_request.requester, 'username', None))
+                
+        except (AttributeError, TypeError) as e:
+            logger.warning(f"Error accessing requester name for request {getattr(blood_request, 'id', 'unknown')}: {e}")
+    
+        # Ensure receiving_facility_name meets minimum length requirement
+        if not receiving_facility_name or len(receiving_facility_name) < 1:
+            receiving_facility_name = "Unknown Facility"
+    
+        # Create the response with all required fields, using getattr for safety
+        try:
+            return cls(
+            id=getattr(blood_request, 'id', None),
+            requester_id=getattr(blood_request, 'requester_id', None),
+            facility_id=getattr(blood_request, 'facility_id', None),
+            receiving_facility_name=receiving_facility_name,  # This is guaranteed to be valid
+            request_group_id=getattr(blood_request, 'request_group_id', None),
+            blood_type=getattr(blood_request, 'blood_type', ''),
+            blood_product=getattr(blood_request, 'blood_product', ''),
+            quantity_requested=getattr(blood_request, 'quantity_requested', 0),
+            request_status=getattr(blood_request, 'request_status', None),
+            processing_status=getattr(blood_request, 'processing_status', None),
+            notes=getattr(blood_request, 'notes', None),
+            priority=getattr(blood_request, 'priority', None),
+            cancellation_reason=getattr(blood_request, 'cancellation_reason', None),
             requester_facility_name=requester_facility_name,
             requester_name=requester_name,
-            created_at=blood_request.created_at,
-            updated_at=blood_request.updated_at
+            created_at=getattr(blood_request, 'created_at', None),
+            updated_at=getattr(blood_request, 'updated_at', None)
         )
+        except Exception as e:
+            # Log all the values for debugging
+            logger.error(f"Error creating BloodRequestResponse for request {getattr(blood_request, 'id', 'unknown')}: {e}")
+            logger.error(f"receiving_facility_name: '{receiving_facility_name}' (length: {len(receiving_facility_name)})")
+            logger.error(f"blood_request attributes: {[attr for attr in dir(blood_request) if not attr.startswith('_')]}")
         
+            # If all else fails, create a minimal valid response
+        return cls(
+            id=getattr(blood_request, 'id', uuid4()),
+            requester_id=getattr(blood_request, 'requester_id', uuid4()),
+            facility_id=getattr(blood_request, 'facility_id', uuid4()),
+            receiving_facility_name="Unknown Facility",
+            request_group_id=getattr(blood_request, 'request_group_id', uuid4()),
+            blood_type=getattr(blood_request, 'blood_type', 'Unknown'),
+            blood_product=getattr(blood_request, 'blood_product', 'Unknown'),
+            quantity_requested=getattr(blood_request, 'quantity_requested', 0),
+            request_status=getattr(blood_request, 'request_status', None),
+            processing_status=getattr(blood_request, 'processing_status', None),
+            notes=getattr(blood_request, 'notes', None),
+            priority=getattr(blood_request, 'priority', None),
+            cancellation_reason=getattr(blood_request, 'cancellation_reason', None),
+            requester_facility_name=requester_facility_name,
+            requester_name=requester_name,
+            created_at=getattr(blood_request, 'created_at', datetime.now()),
+            updated_at=getattr(blood_request, 'updated_at', datetime.now())
+        )
+            
 
 class BloodRequestGroupResponse(BaseModel):
     """Response model for grouped requests"""
@@ -159,6 +208,12 @@ class BloodRequestUpdate(BaseModel):
     quantity_requested: Optional[int] = Field(None, gt=0)
     notes: Optional[str] = None
     request_status: Optional[RequestStatus] = None
+
+
+class BloodRequestStatusUpdate(BaseModel):
+    request_status: RequestStatus
+    cancellation_reason: Optional[str] = None
+
 
 
 class BloodRequestBulkCreateResponse(BaseModel):
