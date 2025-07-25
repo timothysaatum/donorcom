@@ -78,8 +78,10 @@ class BloodRequestService:
                 and_(BloodRequest.requester_id == user_id, BloodRequest.option == "sent")
             )
 
-    def _validate_and_add_status_filters(self, conditions: List, request_status: Optional[str], 
-                                       processing_status: Optional[str]) -> bool:
+    def _validate_and_add_status_filters(
+        self, conditions: List, request_status: Optional[str],
+        processing_status: Optional[str]
+        ) -> bool:
         """Validate and add status filters. Returns False if invalid status provided."""
         if request_status:
             try:

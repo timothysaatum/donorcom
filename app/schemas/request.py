@@ -16,7 +16,12 @@ class ProcessingStatus(str, Enum):
 class PriorityStatus(str, Enum):
 
     urgent = "urgent"
-    not_urgent = "not urgent"
+    not_urgent = "not_urgent"
+
+    @classmethod
+    def _missing_(cls, value):
+        if value == "not-urgent":
+            return cls.not_urgent
 
 class RequestStatus(str, Enum):
 
