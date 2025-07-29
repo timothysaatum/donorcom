@@ -19,4 +19,6 @@ __pycache__/
 !alembic/versions/.gitkeep
 .env
 db.sqlite3
-alembic/versions/
+# Alembic
+!alembic/versions/*.py
+alembic/versions/*.pyc
