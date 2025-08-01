@@ -25,7 +25,12 @@ class BloodInventoryCreate(BaseModel):
 
     @field_validator('blood_product')
     def validate_blood_product(cls, v):
-        valid_products = ['Whole Blood', 'Red Blood Cells', 'Plasma', 'Platelets', 'Cryoprecipitate', 'Fresh Frozen Plasma', 'Albumin']
+        valid_products = [
+            'Whole Blood','whole blood', 'Red Blood Cells', 
+            'red blood cells', 'Plasma', 'Platelets', 'platelets', 
+            'Cryoprecipitate', 'cryoprecipitate',
+            'Fresh Frozen Plasma', 'fresh frozen plasma',
+            'Albumin', 'albumin', 'red cells', 'Red Cells']
         if v not in valid_products:
             raise ValueError(f'Blood product must be one of: {", ".join(valid_products)}')
         return v
@@ -48,7 +53,12 @@ class BloodInventoryUpdate(BaseModel):
     @field_validator('blood_product')
     def validate_blood_product(cls, v):
         if v is not None:
-            valid_products = ['Whole Blood', 'Red Blood Cells', 'Plasma', 'Platelets', 'Cryoprecipitate']
+            valid_products = [
+            'Whole Blood','whole blood', 'Red Blood Cells', 
+            'red blood cells', 'Plasma', 'Platelets', 'platelets', 
+            'Cryoprecipitate', 'cryoprecipitate',
+            'Fresh Frozen Plasma', 'fresh frozen plasma',
+            'Albumin', 'albumin', 'red cells', 'Red Cells']
             if v not in valid_products:
                 raise ValueError(f'Blood product must be one of: {", ".join(valid_products)}')
         return v
@@ -181,7 +191,12 @@ class BloodInventorySearchParams(BaseModel):
     @field_validator('blood_products')
     def validate_blood_products(cls, v):
         if v is not None:
-            valid_products = ['Whole Blood', 'Red Blood Cells', 'Plasma', 'Platelets', 'Cryoprecipitate']
+            valid_products = [
+            'Whole Blood','whole blood', 'Red Blood Cells', 
+            'red blood cells', 'Plasma', 'Platelets', 'platelets', 
+            'Cryoprecipitate', 'cryoprecipitate',
+            'Fresh Frozen Plasma', 'fresh frozen plasma',
+            'Albumin', 'albumin', 'red cells', 'Red Cells']
             for product in v:
                 if product not in valid_products:
                     raise ValueError(f'Invalid blood product: {product}')
