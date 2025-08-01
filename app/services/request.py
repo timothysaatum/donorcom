@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from sqlalchemy import and_, or_, func, text
+from sqlalchemy import and_, or_, func, text, update
 from fastapi import HTTPException
 from uuid import UUID, uuid4
 from typing import List, Optional, Dict, Any
@@ -324,58 +324,92 @@ class BloodRequestService:
         )
 
     async def update_request(self, request_id: UUID, data: BloodRequestUpdate) -> BloodRequest:
-        """Update a request and handle intelligent cancellation"""
+        """Update a request and handle intelligent cancellation - FIXED"""
         request = await self.get_request(request_id)
         if not request:
             raise HTTPException(status_code=404, detail="Blood request not found")
     
-        # Check if status is being changed to accepted
+        # Store old status for comparison
         old_status = request.request_status
-        new_status = data.request_status if data.request_status is not None else old_status
-    
+        
         # Update request fields
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(request, field, value)
-    
-        await self.db.commit()
-        await self.db.refresh(request)
-    
-        # Handle intelligent cancellation if request is accepted
-        if (old_status in [RequestStatus.pending] and 
-            new_status == RequestStatus.accepted):
         
-            # Cancel related requests in the same group
-            await self._cancel_related_requests(request.request_group_id, request.id)
+        # Get the new status after update
+        new_status = request.request_status
+    
+        try:
+            # Commit the main request update first
+            await self.db.commit()
+            await self.db.refresh(request)
+            
+            # Handle intelligent cancellation if request is accepted
+            if (old_status in [RequestStatus.pending] and 
+                new_status == RequestStatus.accepted):
+            
+                logger.info(f"Request {request_id} accepted, cancelling related requests in group {request.request_group_id}")
+                # Cancel related requests in the same group
+                cancelled_count = await self._cancel_related_requests(request.request_group_id, request.id)
+                logger.info(f"Cancelled {cancelled_count} related requests for group {request.request_group_id}")
+        
+        except Exception as e:
+            await self.db.rollback()
+            logger.error(f"Error updating request {request_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail="Failed to update request")
     
         return request
 
-    async def _cancel_related_requests(self, request_group_id: UUID, exclude_request_id: UUID) -> None:
-        """Cancel all related requests in a group except the specified one"""
+    async def _cancel_related_requests(self, request_group_id: UUID, exclude_request_id: UUID) -> int:
+        """Cancel all related requests in a group except the specified one - FIXED"""
         try:
-            # OPTIMIZATION: Update in bulk instead of individual updates
-            await self.db.execute(
-                text("""
-                UPDATE blood_requests 
-                SET request_status = 'cancelled',
-                    cancellation_reason = 'Automatically cancelled - request fulfilled by another facility',
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE request_group_id = :group_id 
-                AND id != :exclude_id 
-                AND request_status IN ('pending', 'accepted')
-                """),
-                {
-                    "group_id": str(request_group_id),
-                    "exclude_id": str(exclude_request_id)
-                }
+            # First, get the requests that will be cancelled for logging
+            check_query = select(BloodRequest.id, BloodRequest.request_status).where(
+                and_(
+                    BloodRequest.request_group_id == request_group_id,
+                    BloodRequest.id != exclude_request_id,
+                    BloodRequest.request_status.in_([RequestStatus.pending, RequestStatus.accepted])
+                )
+            )
+            check_result = await self.db.execute(check_query)
+            requests_to_cancel = check_result.fetchall()
+            
+            if not requests_to_cancel:
+                logger.info(f"No related requests to cancel for group {request_group_id}")
+                return 0
+            
+            logger.info(f"Found {len(requests_to_cancel)} requests to cancel in group {request_group_id}")
+            
+            # Use SQLAlchemy's update() instead of raw SQL
+            update_stmt = (
+                update(BloodRequest)
+                .where(
+                    and_(
+                        BloodRequest.request_group_id == request_group_id,
+                        BloodRequest.id != exclude_request_id,
+                        BloodRequest.request_status.in_([RequestStatus.pending, RequestStatus.accepted])
+                    )
+                )
+                .values(
+                    request_status=RequestStatus.cancelled,
+                    cancellation_reason='Automatically cancelled - request fulfilled by another facility',
+                    updated_at=func.now()
+                )
             )
             
+            result = await self.db.execute(update_stmt)
+            cancelled_count = result.rowcount
+            
+            # Commit the cancellation updates
             await self.db.commit()
-            logger.info(f"Bulk cancelled related requests for group {request_group_id}")
+            
+            logger.info(f"Successfully cancelled {cancelled_count} related requests for group {request_group_id}")
+            return cancelled_count
             
         except Exception as e:
             await self.db.rollback()
-            logger.error(f"Error cancelling related requests: {str(e)}")
-            raise
+            logger.error(f"Error cancelling related requests for group {request_group_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail="Failed to cancel related requests")
 
     async def delete_request(self, request_id: UUID) -> None:
         """Delete a request (only if pending)"""
@@ -589,7 +623,7 @@ class BloodRequestService:
             'total_individual_requests': len(requests),
             'pending_groups': len(groups_by_status.get(RequestStatus.pending, set())),
             'approved_groups': len(groups_by_status.get(RequestStatus.accepted, set())),  # Fixed: was 'approved'
-            'fulfilled_groups': len(groups_by_status.get(RequestStatus.completed, set())),  # Assuming completed means fulfilled
+            'fulfilled_groups': len(groups_by_status.get(ProcessingStatus.completed, set())),  # Assuming completed means fulfilled
             'rejected_groups': len(groups_by_status.get(RequestStatus.rejected, set())),
             'cancelled_groups': len(groups_by_status.get(RequestStatus.cancelled, set()))
         }
