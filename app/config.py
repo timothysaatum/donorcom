@@ -30,6 +30,8 @@ class Settings(BaseSettings):
             "http://127.0.0.1:3000",  # Next.js on different host
             "http://127.0.0.1:8080",  # Local development
             "http://localhost",
+            "hemolync.vercel.app",  # Vercel deployment
+            "https://hemolync.vercel.app",  # Vercel deployment with HTTPS
             "https://haemolync.com",  # Production domain
             "https://www.haemolync.com",  # Production domain with www
         ]
