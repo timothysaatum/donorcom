@@ -34,9 +34,7 @@ class Settings(BaseSettings):
             # Production frontend origins
             "https://hemolync.vercel.app",  # Vercel deployment
             "https://haemolync.com",  # Production domain
-            "https://www.haemolync.com",  # Production domain with www
-            
-            # Production backend (for API calls from frontend)
+            "https://www.haemolync.com",
             "https://hemolync.onrender.com",
         ]
     )
