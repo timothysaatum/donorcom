@@ -21,19 +21,23 @@ class Settings(BaseSettings):
     HOST_EMAIL: str = Field(..., env="HOST_EMAIL")
     HOST_PASSWORD: str = Field(..., env="HOST_PASSWORD")
 
-    # CORS - Modified to include localhost:8080 and wildcard for development
     BACKEND_CORS_ORIGINS: list[str] = Field(
         default=[
+            # Development origins
             "http://localhost:3000",  # Next.js default dev server
             "http://localhost:3001",  # Alternative Next.js port
             "http://localhost:8080",  # Additional development port
             "http://127.0.0.1:3000",  # Next.js on different host
             "http://127.0.0.1:8080",  # Local development
             "http://localhost",
-            "hemolync.vercel.app",  # Vercel deployment
-            "https://hemolync.vercel.app",  # Vercel deployment with HTTPS
+            
+            # Production frontend origins
+            "https://hemolync.vercel.app",  # Vercel deployment
             "https://haemolync.com",  # Production domain
             "https://www.haemolync.com",  # Production domain with www
+            
+            # Production backend (for API calls from frontend)
+            "https://hemolync.onrender.com",
         ]
     )
 
