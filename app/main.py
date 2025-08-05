@@ -65,6 +65,7 @@ def create_application() -> FastAPI:
             f"{settings.API_PREFIX}/blood-bank",
             f"{settings.API_PREFIX}/users/delete-account",
             f"{settings.API_PREFIX}/users/me",
+            f"{settings.API_PREFIX}/users/auth/logout",
             f"{settings.API_PREFIX}/users/update-account",
             f"{settings.API_PREFIX}/blood-inventory",
             f"{settings.API_PREFIX}/blood-distribution",

@@ -1,10 +1,10 @@
-from pydantic.generics import GenericModel
+from pydantic import BaseModel
 from typing import TypeVar, Generic
 
 T = TypeVar("T")
 
-class DataWrapper(GenericModel, Generic[T]):
+class DataWrapper(BaseModel, Generic[T]):
     data: T
 
-class ResponseWrapper(GenericModel, Generic[T]):
+class ResponseWrapper(BaseModel, Generic[T]):
     data: T

@@ -10,7 +10,7 @@ from app.schemas.user import AuthResponse, LoginSchema
 from app.dependencies import get_db
 from app.services.user_service import UserService
 from app.utils.email_verification import send_verification_email
-from app.utils.security import create_verification_token, TokenManager
+from app.utils.security import create_verification_token, TokenManager, get_current_user
 from app.utils.data_wrapper import DataWrapper
 
 # JWT and Token Configuration
@@ -202,7 +202,7 @@ async def refresh_token(
         )
 
 @router.post("/logout")
-async def logout(response: Response):
+async def logout(response: Response, current_user: User = Depends(get_current_user)):
     """
     Logout endpoint that clears the refresh token cookie
     """

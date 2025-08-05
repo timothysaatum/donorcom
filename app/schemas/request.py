@@ -217,6 +217,7 @@ class BloodRequestUpdate(BaseModel):
 
 class BloodRequestStatusUpdate(BaseModel):
     request_status: RequestStatus
+    processing_status: Optional[ProcessingStatus] = None
     cancellation_reason: Optional[str] = None
 
 

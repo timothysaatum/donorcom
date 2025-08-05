@@ -62,20 +62,24 @@ class BloodRequestService:
 
     def _build_facility_query_conditions(self, option: str, facility_id: UUID, user_id: UUID) -> Optional[Any]:
         """Build query conditions efficiently"""
+        not_cancelled = BloodRequest.request_status != RequestStatus.cancelled
         if option == "received":
             return and_(
                 BloodRequest.facility_id == facility_id,
-                BloodRequest.requester_id != user_id
+                BloodRequest.requester_id != user_id,
+                not_cancelled
             )
         elif option == "sent":
             return and_(
                 BloodRequest.requester_id == user_id,
-                BloodRequest.option == "sent"
+                BloodRequest.option == "sent",
+                not_cancelled
             )
         else:  # "all"
             return or_(
                 and_(BloodRequest.facility_id == facility_id, BloodRequest.requester_id != user_id),
-                and_(BloodRequest.requester_id == user_id, BloodRequest.option == "sent")
+                and_(BloodRequest.requester_id == user_id, BloodRequest.option == "sent"),
+                not_cancelled
             )
 
     def _validate_and_add_status_filters(
