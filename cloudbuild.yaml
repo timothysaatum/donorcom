@@ -1,0 +1,31 @@
+# Google Cloud Build configuration for PostgreSQL deployment
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/donorcom-api:$COMMIT_SHA', '.']
+  
+  # Push the container image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/donorcom-api:$COMMIT_SHA']
+  
+  # Deploy to Cloud Run with Cloud SQL connection
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'donorcom-api'
+      - '--image=gcr.io/$PROJECT_ID/donorcom-api:$COMMIT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--port=8000'
+      - '--memory=1Gi'
+      - '--cpu=1'
+      - '--max-instances=10'
+      - '--add-cloudsql-instances=$PROJECT_ID:us-central1:donorcom-db'
+      - '--set-env-vars=ENVIRONMENT=production,SECRET_KEY=6v9y$B&E)H@McQfTjWnZr4u7x!A%D*G-KaNdRgUkXp2s5v8y/B?E(H+MbPeShVmY,ALGORITHM=HS256,HOST_EMAIL=timothysaatum@gmail.com,HOST_PASSWORD=otbeibppuznnveex'
+      - '--set-env-vars=DATABASE_URL=postgresql+asyncpg://donorcom_user:YOUR_DB_PASSWORD@/donorcom?host=/cloudsql/$PROJECT_ID:us-central1:donorcom-db'
+
+images:
+  - 'gcr.io/$PROJECT_ID/donorcom-api:$COMMIT_SHA'
