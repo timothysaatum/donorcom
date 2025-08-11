@@ -1,4 +1,4 @@
-# Google Cloud Build configuration for PostgreSQL deployment
+# Google Cloud Build configuration for secure PostgreSQL deployment
 steps:
   # Build the container image
   - name: 'gcr.io/cloud-builders/docker'
@@ -8,7 +8,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args: ['push', 'gcr.io/$PROJECT_ID/donorcom-api:$COMMIT_SHA']
   
-  # Deploy to Cloud Run with Cloud SQL connection
+  # Deploy to Cloud Run with secure configuration
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
@@ -23,9 +23,28 @@ steps:
       - '--memory=1Gi'
       - '--cpu=1'
       - '--max-instances=10'
+      - '--min-instances=0'
+      - '--concurrency=80'
+      - '--timeout=300'
       - '--add-cloudsql-instances=$PROJECT_ID:us-central1:donorcom-db'
-      - '--set-env-vars=ENVIRONMENT=production,SECRET_KEY=6v9y$B&E)H@McQfTjWnZr4u7x!A%D*G-KaNdRgUkXp2s5v8y/B?E(H+MbPeShVmY,ALGORITHM=HS256,HOST_EMAIL=timothysaatum@gmail.com,HOST_PASSWORD=otbeibppuznnveex'
-      - '--set-env-vars=DATABASE_URL=postgresql+asyncpg://donorcom_user:YOUR_DB_PASSWORD@/donorcom?host=/cloudsql/$PROJECT_ID:us-central1:donorcom-db'
+      - '--set-env-vars=ENVIRONMENT=production,ALGORITHM=HS256'
+      - '--update-secrets=SECRET_KEY=secret-key:latest'
+      - '--update-secrets=HOST_EMAIL=host-email:latest'
+      - '--update-secrets=HOST_PASSWORD=host-password:latest'
+      - '--update-secrets=DB_PASSWORD=db-password:latest'
+      - '--set-env-vars=DATABASE_URL=postgresql+asyncpg://donorcom_user:$(DB_PASSWORD)@/donorcom?host=/cloudsql/$PROJECT_ID:us-central1:donorcom-db&sslmode=require'
 
 images:
   - 'gcr.io/$PROJECT_ID/donorcom-api:$COMMIT_SHA'
+
+# Grant Cloud Build access to Secret Manager
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/secret-key/versions/latest
+      env: 'SECRET_KEY'
+    - versionName: projects/$PROJECT_ID/secrets/host-email/versions/latest
+      env: 'HOST_EMAIL'
+    - versionName: projects/$PROJECT_ID/secrets/host-password/versions/latest
+      env: 'HOST_PASSWORD'
+    - versionName: projects/$PROJECT_ID/secrets/db-password/versions/latest
+      env: 'DB_PASSWORD'
