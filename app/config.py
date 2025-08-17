@@ -1,8 +1,57 @@
+# from pydantic import Field
+# from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# class Settings(BaseSettings):
+
+#     # Application Config
+#     PROJECT_NAME: str = "DonorCom API"
+#     PROJECT_DESCRIPTION: str = "Blood Bank Management System"
+#     VERSION: str = "1.0.0"
+#     API_PREFIX: str = "/api"
+#     DOCS_URL: str = "/docs"
+
+#     # Database
+#     DATABASE_URL: str = Field(..., env="DATABASE_URL")
+#     TEST_DATABASE_URL: str = Field(default="sqlite:///./test.db")
+
+#     # Security
+#     SECRET_KEY: str = Field(..., env="SECRET_KEY")
+#     ALGORITHM: str = Field(..., env="ALGORITHM")
+#     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60 * 24 * 7)
+#     HOST_EMAIL: str = Field(..., env="HOST_EMAIL")
+#     HOST_PASSWORD: str = Field(..., env="HOST_PASSWORD")
+
+#     BACKEND_CORS_ORIGINS: list[str] = Field(
+#         default=[
+#             # Development origins
+#             "http://localhost:3000",  # Next.js default dev server
+#             "http://localhost:3001",  # Alternative Next.js port
+#             "http://localhost:8080",  # Additional development port
+#             "http://127.0.0.1:3000",  # Next.js on different host
+#             "http://127.0.0.1:8080",  # Local development
+#             "http://localhost",
+            
+#             # Production frontend origins
+#             "https://hemolync.vercel.app",  # Vercel deployment
+#             "https://haemolync.com",  # Production domain
+#             "https://www.haemolync.com",
+#             "https://hemolync.onrender.com",
+#         ]
+#     )
+
+#     # New in Pydantic v2
+#     model_config = SettingsConfigDict(
+#         env_file=".env",
+#         env_file_encoding="utf-8",
+#         case_sensitive=True,
+#         extra="ignore"
+#     )
+
+# settings = Settings()
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-
     # Application Config
     PROJECT_NAME: str = "DonorCom API"
     PROJECT_DESCRIPTION: str = "Blood Bank Management System"
@@ -10,9 +59,12 @@ class Settings(BaseSettings):
     API_PREFIX: str = "/api"
     DOCS_URL: str = "/docs"
 
+    # Environment
+    ENVIRONMENT: str = Field("development", env="ENVIRONMENT")  # 'development' or 'production'
+
     # Database
-    DATABASE_URL: str = Field(..., env="DATABASE_URL")
-    TEST_DATABASE_URL: str = Field(default="sqlite:///./test.db")
+    DATABASE_URL: str = Field(default=None, env="DATABASE_URL")
+    DEV_DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./db.sqlite3")
 
     # Security
     SECRET_KEY: str = Field(..., env="SECRET_KEY")
@@ -24,22 +76,22 @@ class Settings(BaseSettings):
     BACKEND_CORS_ORIGINS: list[str] = Field(
         default=[
             # Development origins
-            "http://localhost:3000",  # Next.js default dev server
-            "http://localhost:3001",  # Alternative Next.js port
-            "http://localhost:8080",  # Additional development port
-            "http://127.0.0.1:3000",  # Next.js on different host
-            "http://127.0.0.1:8080",  # Local development
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://localhost:8080",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:8080",
             "http://localhost",
-            
+
             # Production frontend origins
-            "https://hemolync.vercel.app",  # Vercel deployment
-            "https://haemolync.com",  # Production domain
-            "https://www.haemolync.com",
+            "https://hemolync.vercel.app",
             "https://hemolync.onrender.com",
+            "https://hemolync.donorcom.org",
+            "https://www.hemolync.donorcom.org",
         ]
     )
 
-    # New in Pydantic v2
+    # Pydantic v2 config
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -47,4 +99,15 @@ class Settings(BaseSettings):
         extra="ignore"
     )
 
+    def __init__(self, **values):
+        super().__init__(**values)
+        # Prod requires DATABASE_URL
+        if self.ENVIRONMENT.lower() == "production":
+            if not self.DATABASE_URL:
+                raise ValueError("DATABASE_URL must be set in production!")
+        else:
+            # Dev fallback to SQLite if no DATABASE_URL
+            self.DATABASE_URL = self.DATABASE_URL or self.DEV_DATABASE_URL
+
+# Instantiate settings
 settings = Settings()
