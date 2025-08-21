@@ -1,3 +1,125 @@
+# from fastapi import APIRouter, Depends, HTTPException, status, Path, Query, BackgroundTasks
+# from sqlalchemy.ext.asyncio import AsyncSession
+# from app.schemas.inventory import (
+#     BloodInventoryCreate, BloodInventoryResponse, BloodInventoryUpdate, 
+#     BloodInventoryDetailResponse, BloodInventoryBatchCreate, BloodInventoryBatchUpdate,
+#     BloodInventoryBatchDelete, PaginationParams, PaginatedResponse, BatchOperationResponse, InventoryStatistics,
+#     BloodInventorySearchParams,
+#     PaginatedFacilityResponse
+# )
+# from app.services.inventory import BloodInventoryService
+# from app.models.user import User
+# from app.models.inventory import BloodInventory
+# from app.models.health_facility import Facility
+# from app.utils.security import get_current_user
+# from app.dependencies import get_db
+# from uuid import UUID
+# from typing import Optional
+# from sqlalchemy.future import select
+# from app.models.blood_bank import BloodBank
+# from datetime import datetime
+# import logging
+
+# logger = logging.getLogger(__name__)
+
+# router = APIRouter(
+#     prefix="/blood-inventory",
+#     tags=["blood inventory"]
+# )
+
+
+# async def get_user_blood_bank_id(db, user_id):
+#     """
+#     Returns just the blood bank ID (UUID) for the user.
+#     """
+#     result = await db.execute(
+#         select(BloodBank.id)  # ← Changed this line
+#         .join(Facility, BloodBank.facility_id == Facility.id)
+#         .where(
+#             (Facility.facility_manager_id == user_id) |
+#             (Facility.id.in_(
+#                 select(User.work_facility_id).where(User.id == user_id)
+#             )) |
+#             (BloodBank.manager_id == user_id)
+#         )
+#     )
+    
+#     return result.scalar()
+
+# # Create pagination dependency
+# def get_pagination_params(
+#     page: int = Query(1, ge=1, description="Page number (1-based)"),
+#     page_size: int = Query(20, ge=1, le=100, description="Items per page (max 100)"),
+#     sort_by: Optional[str] = Query(None, description="Field to sort by"),
+#     sort_order: str = Query("desc", regex="^(asc|desc)$", description="Sort order")
+# ) -> PaginationParams:
+#     return PaginationParams(
+#         page=page,
+#         page_size=page_size,
+#         sort_by=sort_by,
+#         sort_order=sort_order
+#     )
+
+
+# @router.post("/", response_model=BloodInventoryResponse, status_code=status.HTTP_201_CREATED)
+# async def create_blood_unit(
+#     blood_data: BloodInventoryCreate,
+#     db: AsyncSession = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+#     """
+#     Add a new blood unit to inventory.
+#     The blood bank and user who added it are automatically assigned.
+#     """
+#     blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
+    
+#     blood_service = BloodInventoryService(db)
+#     new_blood_unit = await blood_service.create_blood_unit(
+#         blood_data=blood_data,
+#         blood_bank_id=blood_bank_id,
+#         added_by_id=current_user.id
+#     )
+
+#     return BloodInventoryResponse.model_validate(new_blood_unit, from_attributes=True)
+
+
+# @router.post("/batch", response_model=BatchOperationResponse, status_code=status.HTTP_201_CREATED)
+# async def batch_create_blood_units(
+#     batch_data: BloodInventoryBatchCreate,
+#     background_tasks: BackgroundTasks,
+#     db: AsyncSession = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+#     """
+#     Batch create multiple blood units for improved performance.
+#     Handles up to 1000 units per request with transaction safety.
+#     """
+#     blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
+#     blood_service = BloodInventoryService(db)
+    
+#     try:
+#         created_units = await blood_service.batch_create_blood_units(
+#             blood_units_data=batch_data.blood_units,
+#             blood_bank_id=blood_bank_id,
+#             added_by_id=current_user.id
+#         )
+        
+#         logger.info(f"Batch created {len(created_units)} blood units for bank {blood_bank_id}")
+        
+#         return BatchOperationResponse(
+#             success=True,
+#             processed_count=len(created_units),
+#             created_ids=[unit.id for unit in created_units]
+#         )
+    
+#     except Exception as e:
+#         logger.error(f"Batch create failed: {str(e)}")
+#         return BatchOperationResponse(
+#             success=False,
+#             processed_count=0,
+#             failed_count=len(batch_data.blood_units),
+#             errors=[str(e)]
+#         )
 from fastapi import APIRouter, Depends, HTTPException, status, Path, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.inventory import (
@@ -14,12 +136,10 @@ from app.models.health_facility import Facility
 from app.utils.security import get_current_user
 from app.dependencies import get_db
 from uuid import UUID
-from typing import List, Optional, Literal
+from typing import Optional, Annotated
 from sqlalchemy.future import select
 from app.models.blood_bank import BloodBank
 from datetime import datetime
-from sqlalchemy import or_
-from sqlalchemy.orm import joinedload
 import logging
 
 logger = logging.getLogger(__name__)
@@ -35,131 +155,7 @@ async def get_user_blood_bank_id(db, user_id):
     Returns just the blood bank ID (UUID) for the user.
     """
     result = await db.execute(
-        select(BloodBank.id)  # ← Changed this line
-        .join(Facility, BloodBank.facility_id == Facility.id)
-        .where(
-            (Facility.facility_manager_id == user_id) |
-            (Facility.id.in_(
-                select(User.work_facility_id).where(User.id == user_id)
-            )) |
-            (BloodBank.manager_id == user_id)
-        )
-    )
-    
-    return result.scalar()
-
-# Create pagination dependency
-def get_pagination_params(
-    page: int = Query(1, ge=1, description="Page number (1-based)"),
-    page_size: int = Query(20, ge=1, le=100, description="Items per page (max 100)"),
-    sort_by: Optional[str] = Query(None, description="Field to sort by"),
-    sort_order: str = Query("desc", regex="^(asc|desc)$", description="Sort order")
-) -> PaginationParams:
-    return PaginationParams(
-        page=page,
-        page_size=page_size,
-        sort_by=sort_by,
-        sort_order=sort_order
-    )
-
-
-@router.post("/", response_model=BloodInventoryResponse, status_code=status.HTTP_201_CREATED)
-async def create_blood_unit(
-    blood_data: BloodInventoryCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Add a new blood unit to inventory.
-    The blood bank and user who added it are automatically assigned.
-    """
-    blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
-    
-    blood_service = BloodInventoryService(db)
-    new_blood_unit = await blood_service.create_blood_unit(
-        blood_data=blood_data,
-        blood_bank_id=blood_bank_id,
-        added_by_id=current_user.id
-    )
-
-    return BloodInventoryResponse.model_validate(new_blood_unit, from_attributes=True)
-
-
-@router.post("/batch", response_model=BatchOperationResponse, status_code=status.HTTP_201_CREATED)
-async def batch_create_blood_units(
-    batch_data: BloodInventoryBatchCreate,
-    background_tasks: BackgroundTasks,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Batch create multiple blood units for improved performance.
-    Handles up to 1000 units per request with transaction safety.
-    """
-    blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
-    blood_service = BloodInventoryService(db)
-    
-    try:
-        created_units = await blood_service.batch_create_blood_units(
-            blood_units_data=batch_data.blood_units,
-            blood_bank_id=blood_bank_id,
-            added_by_id=current_user.id
-        )
-        
-        logger.info(f"Batch created {len(created_units)} blood units for bank {blood_bank_id}")
-        
-        return BatchOperationResponse(
-            success=True,
-            processed_count=len(created_units),
-            created_ids=[unit.id for unit in created_units]
-        )
-    
-    except Exception as e:
-        logger.error(f"Batch create failed: {str(e)}")
-        return BatchOperationResponse(
-            success=False,
-            processed_count=0,
-            failed_count=len(batch_data.blood_units),
-            errors=[str(e)]
-        )
-from fastapi import APIRouter, Depends, HTTPException, status, Path, Query, BackgroundTasks
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.schemas.inventory import (
-    BloodInventoryCreate, BloodInventoryResponse, BloodInventoryUpdate, 
-    BloodInventoryDetailResponse, BloodInventoryBatchCreate, BloodInventoryBatchUpdate,
-    BloodInventoryBatchDelete, PaginationParams, PaginatedResponse, BatchOperationResponse, InventoryStatistics,
-    BloodInventorySearchParams,
-    PaginatedFacilityResponse
-)
-from app.services.inventory import BloodInventoryService
-from app.models.user import User
-from app.models.inventory import BloodInventory
-from app.models.health_facility import Facility
-from app.utils.security import get_current_user
-from app.dependencies import get_db
-from uuid import UUID
-from typing import List, Optional, Literal, Annotated
-from sqlalchemy.future import select
-from app.models.blood_bank import BloodBank
-from datetime import datetime
-from sqlalchemy import or_
-from sqlalchemy.orm import joinedload
-import logging
-
-logger = logging.getLogger(__name__)
-
-router = APIRouter(
-    prefix="/blood-inventory",
-    tags=["blood inventory"]
-)
-
-
-async def get_user_blood_bank_id(db, user_id):
-    """
-    Returns just the blood bank ID (UUID) for the user.
-    """
-    result = await db.execute(
-        select(BloodBank.id)  # ← Changed this line
+        select(BloodBank.id)
         .join(Facility, BloodBank.facility_id == Facility.id)
         .where(
             (Facility.facility_manager_id == user_id) |
