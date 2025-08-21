@@ -1,3 +1,4 @@
+from app.services.scheduler import start_scheduler
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
@@ -40,7 +41,9 @@ def create_application() -> FastAPI:
 
     # Include API routes
     app.include_router(api_router, prefix=settings.API_PREFIX)
-
+    @app.on_event("startup")
+    async def startup_event():
+        start_scheduler()
     admin = Admin(app, engine, base_url="/admin")
     admin.add_view(UserAdmin)
     admin.add_view(FacilityAdmin)
@@ -82,6 +85,7 @@ def create_application() -> FastAPI:
             f"{settings.API_PREFIX}/requests",
             f"{settings.API_PREFIX}/patients",
             f"{settings.API_PREFIX}/stats",
+            f"{settings.API_PREFIX}/dashboard"
         ]
 
         for path_key, path_item in openapi_schema["paths"].items():
