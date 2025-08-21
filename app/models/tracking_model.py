@@ -13,6 +13,7 @@ class TrackStateStatus(PyEnum):
     returned = "returned"
     rejected = "rejected"
     cancelled = "cancelled"
+    pending_receive = "pending receive"
 
 class TrackState(Base):
     __tablename__ = "track_states"
@@ -32,6 +33,7 @@ class TrackState(Base):
     # Relationships
     blood_distribution = relationship("BloodDistribution", back_populates="track_states")
     created_by = relationship("User", foreign_keys=[created_by_id])
+    blood_request_id = Column(UUID(as_uuid=True), ForeignKey("blood_requests.id", ondelete="CASCADE"), nullable=True)
 
     def __str__(self):
         return f"{self.status} at {self.location or 'unknown location'} ({self.timestamp})"

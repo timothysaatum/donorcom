@@ -1,7 +1,10 @@
+import time
+from app.models.tracking_model import TrackState
+from app.schemas.tracking_schema import TrackStateStatus
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from sqlalchemy import and_, or_, func, text, update
+from sqlalchemy import and_, or_, func, update
 from fastapi import HTTPException
 from uuid import UUID, uuid4
 from typing import List, Optional, Dict, Any
@@ -17,8 +20,8 @@ from app.schemas.request import (
     BloodRequestResponse
 )
 from app.schemas.inventory import PaginatedResponse
+from app.utils.notification_util import notify
 import logging
-import time
 from functools import wraps
 
 logger = logging.getLogger(__name__)
@@ -156,10 +159,12 @@ class BloodRequestService:
         )
 
     @performance_monitor
-    async def create_bulk_request(self, data: BloodRequestCreate, requester_id: UUID) -> BloodRequestBulkCreateResponse:
+    async def create_bulk_request(
+        self, data: BloodRequestCreate, requester_id: UUID
+    ) -> BloodRequestBulkCreateResponse:
         """Create requests to multiple facilities with intelligent grouping - OPTIMIZED"""
 
-        # OPTIMIZATION: Use selectinload for better performance with optional relationships
+        # Get requester with facility relationships
         requester_result = await self.db.execute(
             select(User)
             .options(
@@ -169,44 +174,46 @@ class BloodRequestService:
             .where(User.id == requester_id)
         )
         requester = requester_result.scalar_one_or_none()
-    
         if not requester:
             raise HTTPException(status_code=404, detail="Requester not found")
-    
-        # Determine requester's facility
-        requester_facility_id = None
-        if requester.facility:
-            requester_facility_id = requester.facility.id
-        elif requester.work_facility:
-            requester_facility_id = requester.work_facility.id
-    
-        # Filter out the requester's own facility from the request
+
+        # Identify requester's facility (self-request prevention)
+        requester_facility_id = requester.facility.id if requester.facility else (
+            requester.work_facility.id if requester.work_facility else None
+        )
+
         if requester_facility_id:
             original_count = len(data.facility_ids)
             data.facility_ids = [fid for fid in data.facility_ids if fid != requester_facility_id]
-        
             if len(data.facility_ids) != original_count:
-                logger.warning(f"Removed requester's own facility from request list. Original: {original_count}, After: {len(data.facility_ids)}")
-    
+                logger.warning(
+                    f"Removed requester's own facility from request list. "
+                    f"Original: {original_count}, After: {len(data.facility_ids)}"
+                )
+
         if not data.facility_ids:
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail="Cannot send requests to your own facility. Please select other facilities."
             )
 
-        # Validate facilities exist
-        await self._validate_facilities(data.facility_ids)
+        # Validate facilities exist & fetch their names
+        facilities_result = await self.db.execute(
+            select(Facility.id, Facility.facility_name).where(Facility.id.in_(data.facility_ids))
+        )
+        facility_map = {row.id: row.facility_name for row in facilities_result}
+        if len(facility_map) != len(data.facility_ids):
+            raise HTTPException(status_code=400, detail="One or more facilities not found")
 
-        # Generate group ID for related requests
+        # Generate group ID
         request_group_id = uuid4()
-
-        # Create requests for each facility
         created_requests = []
 
         try:
             for idx, facility_id in enumerate(data.facility_ids):
                 is_master = idx == 0
 
+                # Create blood request
                 new_request = BloodRequest(
                     requester_id=requester_id,
                     facility_id=facility_id,
@@ -219,13 +226,33 @@ class BloodRequestService:
                     request_status=RequestStatus.pending,
                     priority=data.priority
                 )
-            
                 self.db.add(new_request)
+                await self.db.flush()  # ensures new_request.id is available
+
+                # Create initial track state
+                track_state = TrackState(
+                    blood_request_id=new_request.id,
+                    status=TrackStateStatus.pending_receive,
+                    location=facility_map[facility_id],
+                    notes="Request created, awaiting processing",
+                    created_by_id=requester_id
+                )
+                self.db.add(track_state)
                 created_requests.append(new_request)
-        
+
+            # Final commit
             await self.db.commit()
 
-            # OPTIMIZATION: Single query to load all relationships instead of N queries
+            # Send notification using the utility function
+            facility_names = ", ".join([facility_map[fid] for fid in data.facility_ids])
+            await notify(
+                self.db,
+                requester_id,
+                "Blood Requests Created",
+                f"Successfully created requests for {data.blood_product} ({data.blood_type}) - {data.quantity_requested} units to {len(data.facility_ids)} facilities: {facility_names}"
+            )
+
+            # Reload all created requests with relationships
             request_ids = [req.id for req in created_requests]
             result = await self.db.execute(
                 select(BloodRequest)
@@ -237,19 +264,13 @@ class BloodRequestService:
                 .where(BloodRequest.id.in_(request_ids))
             )
             refreshed_requests = result.scalars().all()
-        
-            # Convert to response models with optimized conversion
-            response_requests = [
-                self._fast_convert_to_response(request) 
-                for request in refreshed_requests
-            ]
-        
+
             logger.info(f"Created {len(created_requests)} blood requests with group ID: {request_group_id}")
-        
+
             return BloodRequestBulkCreateResponse(
                 request_group_id=request_group_id,
                 total_requests_created=len(created_requests),
-                requests=response_requests,
+                requests=[self._fast_convert_to_response(r) for r in refreshed_requests],
                 message=f"Successfully created requests to {len(created_requests)} facilities"
             )
 
@@ -257,6 +278,7 @@ class BloodRequestService:
             await self.db.rollback()
             logger.error(f"Error creating bulk requests: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to create blood requests")
+
 
     async def _validate_facilities(self, facility_ids: List[UUID]) -> None:
         """Validate that all facilities exist"""
@@ -332,37 +354,63 @@ class BloodRequestService:
         request = await self.get_request(request_id)
         if not request:
             raise HTTPException(status_code=404, detail="Blood request not found")
-    
-        # Store old status for comparison
+
         old_status = request.request_status
-        
-        # Update request fields
+
+        # Apply updates
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(request, field, value)
-        
-        # Get the new status after update
+
         new_status = request.request_status
-    
+
         try:
-            # Commit the main request update first
+            # Commit update
             await self.db.commit()
             await self.db.refresh(request)
-            
+
+            # Track state logging if status changed
+            if old_status != new_status:
+                # Map request status to TrackStateStatus safely
+                status_mapping = {
+                    "pending": TrackStateStatus.pending_receive,
+                    "accepted": TrackStateStatus.dispatched,
+                    "fulfilled": TrackStateStatus.received,
+                    "returned": TrackStateStatus.returned,
+                    "rejected": TrackStateStatus.rejected,
+                    "cancelled": TrackStateStatus.cancelled,
+                }
+                mapped_status = status_mapping.get(new_status.value, TrackStateStatus.pending_receive)
+
+                track_state = TrackState(
+                    blood_request_id=request.id,
+                    status=mapped_status,
+                    location=request.facility.facility_name if request.facility else None,
+                    notes=f"Request status changed from {old_status.value} to {new_status.value}",
+                    created_by_id=request.requester_id
+                )
+                self.db.add(track_state)
+                await self.db.commit()
+
+                # Send notification using the utility function
+                await notify(
+                    self.db,
+                    request.requester_id,
+                    "Request Status Updated",
+                    f"Your blood request for {request.blood_product} ({request.blood_type}) has been updated from {old_status.value} to {new_status.value}"
+                )
+
             # Handle intelligent cancellation if request is accepted
-            if (old_status in [RequestStatus.pending] and 
-                new_status == RequestStatus.accepted):
-            
-                logger.info(f"Request {request_id} accepted, cancelling related requests in group {request.request_group_id}")
-                # Cancel related requests in the same group
+            if old_status == RequestStatus.pending and new_status == RequestStatus.accepted:
                 cancelled_count = await self._cancel_related_requests(request.request_group_id, request.id)
-                logger.info(f"Cancelled {cancelled_count} related requests for group {request.request_group_id}")
-        
+                logger.info(f"Cancelled {cancelled_count} related requests after acceptance of request {request.id}")
+
         except Exception as e:
             await self.db.rollback()
-            logger.error(f"Error updating request {request_id}: {str(e)}")
+            logger.error(f"Failed to update request {request_id}: {str(e)}")
             raise HTTPException(status_code=500, detail="Failed to update request")
-    
+
         return request
+
 
     async def _cancel_related_requests(self, request_group_id: UUID, exclude_request_id: UUID) -> int:
         """Cancel all related requests in a group except the specified one - FIXED"""
@@ -427,8 +475,18 @@ class BloodRequestService:
                 detail="Cannot delete request that is not pending or cancelled"
             )
         
+        # Send notification before deletion
+        await notify(
+            self.db,
+            request.requester_id,
+            "Request Deleted",
+            f"Your blood request for {request.blood_product} ({request.blood_type}) - {request.quantity_requested} units has been deleted"
+        )
+        
         await self.db.delete(request)
         await self.db.commit()
+        
+        logger.info(f"Request {request_id} deleted successfully")
 
     @performance_monitor
     async def list_requests_by_user(self, user_id: UUID) -> List[BloodRequest]:

@@ -91,12 +91,12 @@ class BloodDistributionService:
 
         track_state = TrackState(
             blood_distribution_id=new_distribution.id,
-            status=TrackStateStatus.dispatched,
+            status=TrackStateStatus.pending_receive,
             location=new_distribution.dispatched_from.blood_bank_name,
-            notes="Blood issued, in transit",
+            notes="Distribution created, awaiting dispatch",
             created_by_id=created_by_id
         )
-
+        # Add the tracking state
         self.db.add(track_state)
         await self.db.commit()
 
@@ -127,11 +127,13 @@ class BloodDistributionService:
             raise HTTPException(status_code=404, detail="Distribution not found")  
 
         update_dict = update_data.model_dump(exclude_unset=True)  
-          
+
+        # Save the old status before any changes
+        old_status = distribution.status
+
         # Special handling for status changes  
         if 'status' in update_dict:  
             new_status = update_dict['status']  
-            old_status = distribution.status  
 
             # Auto-update date_dispatched when status changes to in_transit  
             if new_status == BloodDistributionStatus.in_transit and old_status == BloodDistributionStatus.pending:  
@@ -167,10 +169,39 @@ class BloodDistributionService:
         for field, value in update_dict.items():  
             setattr(distribution, field, value)  
 
-        await self.db.commit()  
-        await self.db.refresh(distribution)  
-          
-        return distribution  
+        # await self.db.commit()  
+        # await self.db.refresh(distribution)
+
+        status_mapping = {
+            "pending": TrackStateStatus.pending_receive,
+            "in_transit": TrackStateStatus.dispatched,
+            "delivered": TrackStateStatus.received,
+            "returned": TrackStateStatus.returned,
+            "cancelled": TrackStateStatus.cancelled,
+        }
+
+        track_state = None
+        if old_status != distribution.status:
+            mapped_status = status_mapping.get(distribution.status.value, TrackStateStatus.pending_receive)
+            
+            # Choose location based on status
+            if mapped_status in [TrackStateStatus.pending_receive, TrackStateStatus.dispatched]:
+                location = distribution.dispatched_from.blood_bank_name if distribution.dispatched_from else None
+            else:
+                location = distribution.dispatched_to.facility_name if distribution.dispatched_to else None
+
+            track_state = TrackState(
+                blood_distribution_id=distribution.id,
+                status=mapped_status,
+                location=location,
+                notes=f"Distribution status changed from {old_status.value} to {distribution.status.value}",
+                created_by_id=distribution.created_by_id
+            )
+            self.db.add(track_state)
+        await self.db.commit()
+        await self.db.refresh(distribution)
+
+        return distribution
 
     async def delete_distribution(self, distribution_id: UUID) -> bool:  
         """  

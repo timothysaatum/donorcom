@@ -6,3 +6,4 @@ from .distribution import BloodDistribution
 from .tracking_model import TrackState
 from .patient import Patient
 from .request import BloodRequest
+from .notification import Notification
