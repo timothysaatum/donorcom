@@ -37,6 +37,8 @@ class User(Base):
     
     blood_bank = relationship("BloodBank", back_populates="manager_user", uselist=False)
     added_blood_units = relationship("BloodInventory", back_populates="added_by")
+    notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
+
     is_verified = Column(Boolean, default=False)
     verification_token = Column(String, nullable=True)
 

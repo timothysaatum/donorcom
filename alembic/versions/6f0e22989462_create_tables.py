@@ -1,8 +1,8 @@
-"""Create tables
+"""Create Tables
 
-Revision ID: 2ccb1a0febff
+Revision ID: 6f0e22989462
 Revises: 
-Create Date: 2025-08-20 18:27:36.796907
+Create Date: 2025-08-22 04:56:14.337816
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '2ccb1a0febff'
+revision: str = '6f0e22989462'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -28,6 +28,8 @@ def upgrade() -> None:
     sa.Column('facility_email', sa.String(length=100), nullable=False),
     sa.Column('facility_digital_address', sa.String(length=15), nullable=False),
     sa.Column('facility_contact_number', sa.String(length=20), nullable=True),
+    sa.Column('latitude', sa.Float(), nullable=True),
+    sa.Column('longitude', sa.Float(), nullable=True),
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
     sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
     sa.ForeignKeyConstraint(['facility_manager_id'], ['users.id'], ondelete='CASCADE'),
@@ -126,6 +128,16 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['facility_id'], ['facilities.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('facility_id', 'date')
     )
+    op.create_table('notifications',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('user_id', sa.UUID(), nullable=True),
+    sa.Column('title', sa.String(length=255), nullable=False),
+    sa.Column('message', sa.String(length=500), nullable=False),
+    sa.Column('is_read', sa.Boolean(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=True),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
     op.create_table('blood_inventory',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('blood_product', sa.String(length=50), nullable=False),
@@ -172,11 +184,13 @@ def upgrade() -> None:
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('blood_distribution_id', sa.UUID(), nullable=False),
     sa.Column('created_by_id', sa.UUID(), nullable=True),
-    sa.Column('status', sa.Enum('dispatched', 'received', 'returned', 'rejected', 'cancelled', name='trackstatestatus'), nullable=False),
+    sa.Column('status', sa.Enum('dispatched', 'received', 'returned', 'rejected', 'cancelled', 'pending_receive', name='trackstatestatus'), nullable=False),
     sa.Column('location', sa.String(length=255), nullable=True),
     sa.Column('notes', sa.Text(), nullable=True),
     sa.Column('timestamp', sa.DateTime(), nullable=False),
+    sa.Column('blood_request_id', sa.UUID(), nullable=True),
     sa.ForeignKeyConstraint(['blood_distribution_id'], ['blood_distributions.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['blood_request_id'], ['blood_requests.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['created_by_id'], ['users.id'], ondelete='SET NULL'),
     sa.PrimaryKeyConstraint('id')
     )
@@ -201,6 +215,7 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_blood_inventory_id'))
 
     op.drop_table('blood_inventory')
+    op.drop_table('notifications')
     op.drop_table('dashboard_daily_summary')
     with op.batch_alter_table('blood_requests', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_blood_requests_request_group_id'))

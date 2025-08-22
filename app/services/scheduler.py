@@ -80,4 +80,3 @@ def start_scheduler():
         replace_existing=True,
     )
     scheduler.start()
-    print("APScheduler started (refresh every 5 min)")
