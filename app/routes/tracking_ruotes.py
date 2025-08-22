@@ -4,8 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.tracking_schema import (
     TrackStateCreate,
     TrackStateResponse,
-    TrackStateDetailResponse,
-    # TrackStateStatus
+    TrackStateDetailResponse
 )
 from app.services.tracking_service import TrackStateService
 from app.models.user import User
@@ -43,9 +42,9 @@ async def create_track_state(
     
     return response
 
-@router.get("/{track_state_id}", response_model=TrackStateDetailResponse)
+@router.get("/{request_id}", response_model=List[TrackStateDetailResponse])
 async def get_track_state(
-    track_state_id: UUID = Path(..., description="The ID of the track state to retrieve"),
+    request_id: UUID = Path(..., description="The ID of the request to retrieve"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -53,9 +52,9 @@ async def get_track_state(
     Get details of a specific tracking state.
     """
     track_service = TrackStateService(db)
-    track_state = await track_service.get_track_state(track_state_id)
+    track_states = await track_service.get_track_state(request_id)  # This returns a list
     
-    if not track_state:
+    if not track_states:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Track state not found"
@@ -63,13 +62,15 @@ async def get_track_state(
     
     # Add authorization check here - verify user has access to the related distribution
     
-    # Format response
-    response = TrackStateDetailResponse(
-        **TrackStateResponse.model_validate(track_state, from_attributes=True).model_dump(),
-        created_by_name=track_state.created_by.last_name if track_state.created_by else None
-    )
+    # Process each track state in the list
+    responses = []
+    for track_state in track_states:
+        response = TrackStateDetailResponse(
+            **TrackStateResponse.model_validate(track_state, from_attributes=True).model_dump()
+        )
+        responses.append(response)
     
-    return response
+    return responses
 
 @router.get("/distribution/{tracking_number}", response_model=List[TrackStateDetailResponse])
 async def get_track_states_for_distribution(
@@ -93,49 +94,49 @@ async def get_track_states_for_distribution(
         for state in track_states
     ]
 
-@router.get("/distribution/{distribution_id}/latest", response_model=TrackStateDetailResponse)
-async def get_latest_track_state(
-    distribution_id: UUID = Path(..., description="The ID of the distribution to get latest state for"),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Get the most recent tracking state for a distribution.
-    """
-    track_service = TrackStateService(db)
-    track_state = await track_service.get_latest_state_for_distribution(distribution_id)
+# @router.get("/distribution/{distribution_id}/latest", response_model=TrackStateDetailResponse)
+# async def get_latest_track_state(
+#     distribution_id: UUID = Path(..., description="The ID of the distribution to get latest state for"),
+#     db: AsyncSession = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+#     """
+#     Get the most recent tracking state for a distribution.
+#     """
+#     track_service = TrackStateService(db)
+#     track_state = await track_service.get_latest_state_for_distribution(distribution_id)
     
-    if not track_state:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No track states found for this distribution"
-        )
+#     if not track_state:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail="No track states found for this distribution"
+#         )
     
-    # Add authorization check here
+#     # Add authorization check here
     
-    response = TrackStateDetailResponse(
-        **TrackStateResponse.model_validate(track_state, from_attributes=True).model_dump(),
-        created_by_name=track_state.created_by.last_name if track_state.created_by else None
-    )
+#     response = TrackStateDetailResponse(
+#         **TrackStateResponse.model_validate(track_state, from_attributes=True).model_dump(),
+#         created_by_name=track_state.created_by.last_name if track_state.created_by else None
+#     )
     
-    return response
+#     return response
 
-@router.delete("/{track_state_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_track_state(
-    track_state_id: UUID = Path(..., description="The ID of the track state to delete"),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Delete a tracking state.
-    """
-    track_service = TrackStateService(db)
-    success = await track_service.delete_track_state(track_state_id)
+# @router.delete("/{track_state_id}", status_code=status.HTTP_204_NO_CONTENT)
+# async def delete_track_state(
+#     track_state_id: UUID = Path(..., description="The ID of the track state to delete"),
+#     db: AsyncSession = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+#     """
+#     Delete a tracking state.
+#     """
+#     track_service = TrackStateService(db)
+#     success = await track_service.delete_track_state(track_state_id)
     
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Track state not found"
-        )
+#     if not success:
+#         raise HTTPException(
+#             status_code=status.HTTP_404_NOT_FOUND,
+#             detail="Track state not found"
+#         )
     
-    return None
+#     return None

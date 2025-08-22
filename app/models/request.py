@@ -51,10 +51,9 @@ class BloodRequest(Base):
 
     # Cancellation reason for auto-cancelled requests
     cancellation_reason = Column(String(200), nullable=True)
-
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-
+    track_states = relationship("TrackState", back_populates="blood_request", cascade="all, delete-orphan")
     # Option field to track request direction
     option = Column(String(10), default="sent")
 

@@ -8,6 +8,7 @@ from .distribution import router as distribution_router
 from .tracking_ruotes import router as tracking_router
 from .stats_routes import router as inventory_stats_route
 from .request import router as request_router
+from .notification import router as notification_router
 
 router = APIRouter()
 
@@ -20,4 +21,4 @@ router.include_router(blood_inventory_router)
 router.include_router(request_router)
 router.include_router(distribution_router)
 router.include_router(tracking_router)
-
+router.include_router(notification_router)

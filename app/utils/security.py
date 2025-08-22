@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
 from typing import Optional
 import os
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, WebSocket
 from fastapi.security import OAuth2PasswordBearer
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -146,3 +146,32 @@ async def get_current_user(db: AsyncSession = Depends(get_db), token: str = Depe
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+
+async def get_current_user_ws(websocket: WebSocket, db: AsyncSession) -> User:
+    # Token from cookie
+    token = websocket.cookies.get("access_token")
+    if token is None:
+        await websocket.close(code=1008)
+        raise HTTPException(status_code=401, detail="Missing token")
+
+    try:
+        payload = TokenManager.decode_token(token)
+        user_id = payload.get("sub")
+        if not user_id:
+            await websocket.close(code=1008)
+            raise HTTPException(status_code=401, detail="Invalid token")
+
+        result = await db.execute(
+            select(User)
+            .where(User.id == UUID(user_id))
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            await websocket.close(code=1008)
+            raise HTTPException(status_code=401, detail="User not found")
+        return user
+
+    except Exception:
+        await websocket.close(code=1008)
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")

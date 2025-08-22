@@ -18,6 +18,7 @@ class TrackStateService:
         """Create a new tracking state entry"""
         db_track = TrackState(
             blood_distribution_id=track_data.blood_distribution_id,
+            blood_request_id=track_data.blood_request_id,
             status=track_data.status,
             location=track_data.location,
             notes=track_data.notes,
@@ -30,13 +31,15 @@ class TrackStateService:
         return db_track
 
 
-    async def get_track_state(self, track_state_id: UUID) -> Optional[TrackState]:
-        """Get a single tracking state by ID"""
-        result = await self.db.execute(
-            select(TrackState).where(TrackState.id == track_state_id)
-        )
-        return result.scalar_one_or_none()
 
+    async def get_track_state(self, blood_request_id: UUID) -> List[TrackState]:
+        """Get all tracking states for a specific blood request"""
+        result = await self.db.execute(
+            select(TrackState)
+            .where(TrackState.blood_request_id == blood_request_id)
+            .order_by(TrackState.timestamp.desc())
+        )
+        return result.scalars().all()
 
     async def get_track_states_for_distribution(self, tracking_number: str) -> List[TrackState]:
         """Get all tracking states for a specific distribution using tracking number"""
@@ -61,26 +64,26 @@ class TrackStateService:
         return result.scalar_one_or_none()
 
 
-    async def update_track_state(self, track_state_id: UUID, update_data: dict) -> Optional[TrackState]:
-        """Update a tracking state"""
-        track_state = await self.get_track_state(track_state_id)
-        if not track_state:
-            return None
+    # async def update_track_state(self, track_state_id: UUID, update_data: dict) -> Optional[TrackState]:
+    #     """Update a tracking state"""
+    #     track_state = await self.get_track_state(track_state_id)
+    #     if not track_state:
+    #         return None
             
-        for field, value in update_data.items():
-            setattr(track_state, field, value)
+    #     for field, value in update_data.items():
+    #         setattr(track_state, field, value)
             
-        await self.db.commit()
-        await self.db.refresh(track_state)
-        return track_state
+    #     await self.db.commit()
+    #     await self.db.refresh(track_state)
+    #     return track_state
 
 
-    async def delete_track_state(self, track_state_id: UUID) -> bool:
-        """Delete a tracking state"""
-        track_state = await self.get_track_state(track_state_id)
-        if not track_state:
-            return False
+    # async def delete_track_state(self, track_state_id: UUID) -> bool:
+    #     """Delete a tracking state"""
+    #     track_state = await self.get_track_state(track_state_id)
+    #     if not track_state:
+    #         return False
             
-        await self.db.delete(track_state)
-        await self.db.commit()
-        return True
+    #     await self.db.delete(track_state)
+    #     await self.db.commit()
+    #     return True

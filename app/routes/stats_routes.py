@@ -40,8 +40,29 @@ async def dashboard_summary(
 ):
     """
     Get dashboard summary for a facility.
-    - Users → restricted to their own facility
-    - Facility admins → can view their facility
+    - Total in stock, Total transferred, & Total requested
+    - Shape: {
+        "total_in_stock": {
+            "value": 0,
+            "change": 0,
+            "direction": "string"
+        },
+        "total_transferred": {
+            "value": 0,
+            "change": 0,
+            "direction": "string"
+        },
+        "total_transferred": {
+            "value": 0,
+            "change": 0,
+            "direction": "string"
+        },
+        "total_requested": {
+            "value": 0,
+            "change": 0,
+            "direction": "string"
+        }
+    }
     """
     try:
         facility_id = get_user_facility_id(current_user)
