@@ -11,6 +11,7 @@ from app.admin.blood_bank_admin import BloodBankAdmin
 from app.admin.inventory import BloodInventoryAdmin
 from app.database import engine
 from fastapi.responses import RedirectResponse
+from tasks.reverse_address import start_periodic_task
 
 def create_application() -> FastAPI:
     app = FastAPI(
@@ -41,9 +42,12 @@ def create_application() -> FastAPI:
 
     # Include API routes
     app.include_router(api_router, prefix=settings.API_PREFIX)
+
     @app.on_event("startup")
     async def startup_event():
         start_scheduler()
+        start_periodic_task()
+
     admin = Admin(app, engine, base_url="/admin")
     admin.add_view(UserAdmin)
     admin.add_view(FacilityAdmin)
