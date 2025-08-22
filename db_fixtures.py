@@ -60,7 +60,7 @@ async def seed_db():
                     facility_name=f"Tamale Teaching Hospital {i+1}",
                     facility_email=f"email{i+1}@tth.org",
                     facility_contact_number=f"+2337000000{i+1}",
-                    facility_digital_address=f"DA-{i+1}2345",
+                    facility_digital_address=f"DA-1902{i+1}-2345",
                     facility_manager_id=user.id
                 )
                 db.add(facility)
