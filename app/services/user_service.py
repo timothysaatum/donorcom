@@ -1,3 +1,6 @@
+from asyncio.log import logger
+from unittest import result
+from app.models.rbac import Role
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from fastapi import HTTPException
@@ -8,9 +11,11 @@ from app.utils.security import get_password_hash, verify_password, TokenManager,
 from datetime import datetime, timedelta
 from typing import Optional, List
 from uuid import UUID
+from sqlalchemy import and_
 from fastapi import BackgroundTasks
 from app.utils.email_verification import send_verification_email
 from sqlalchemy.orm import selectinload
+
 
 
 class UserService:
@@ -23,21 +28,29 @@ class UserService:
             facility_id: Optional[UUID] = None,
             work_facility_id: Optional[UUID] = None
             ) -> User:
-        result = await self.db.execute(select(User).where(User.email == user_data.email))
+        
+        email = user_data.email.strip().lower()
+        result = await self.db.execute(select(User).where(User.email == email))
         existing_user = result.scalar_one_or_none()
 
         if existing_user:
             raise HTTPException(status_code=400, detail="Email already registered")
 
         hashed_password = get_password_hash(user_data.password)
-        verification_token = create_verification_token(user_data.email)
+        # verification_token = create_verification_token(user_data.email)
+        facility_id = facility_id or work_facility_id
+
+        verification_token = create_verification_token(
+            email=user_data.email,
+            role=user_data.role,
+            facility_id=str(facility_id) if facility_id else None
+        )
 
         created_user = User(
             email=user_data.email,
             first_name=user_data.first_name,
             last_name=user_data.last_name,
             password=hashed_password,
-            role=user_data.role,
             phone=user_data.phone,
             verification_token=verification_token,
             work_facility_id=work_facility_id if work_facility_id else None
@@ -49,43 +62,13 @@ class UserService:
 
         # Send verification email
         if background_tasks:
-            background_tasks.add_task(send_verification_email, created_user.email, verification_token)
+            background_tasks.add_task(
+                send_verification_email, 
+                created_user.email, 
+                verification_token
+            )
 
         return created_user
-
-    async def authenticate_user(self, email: str, password: str) -> dict:
-        # Query with both relationships loaded
-        result = await self.db.execute(
-            select(User)
-            .options(
-                # For facility administrators - facilities they manage
-                selectinload(User.facility).selectinload(Facility.blood_bank),
-                # For staff/lab managers - facilities they work at
-                selectinload(User.work_facility).selectinload(Facility.blood_bank)
-            )
-            .where(User.email == email)
-        )
-        user = result.scalar_one_or_none()
-
-        if not user or not verify_password(password, user.password):
-            raise HTTPException(status_code=401, detail="Invalid credentials")
-
-        if not user.is_verified:
-            raise HTTPException(status_code=400, detail="User email not verified")
-
-        # Update last login
-        user.last_login = datetime.now()
-        await self.db.commit()
-
-        token_data = {"sub": str(user.id), "email": user.email}
-        access_token = TokenManager.create_access_token(data=token_data, expires_delta=timedelta(minutes=60))
-
-        user_data = UserWithFacility.model_validate(user, from_attributes=True).model_dump()
-
-        return {
-            "access_token": access_token,
-            "user": user_data
-        }
 
     async def get_user(self, user_id: UUID) -> Optional[User]:
         result = await self.db.execute(select(User).where(User.id == user_id))
@@ -107,10 +90,28 @@ class UserService:
         return user
     
     async def delete_user(self, user_id: UUID) -> None:
-        user = await self.get_user(user_id)
-
+        
+        # fetch the user with relationships loaded
+        result = await self.db.execute(
+            select(User)
+            .options(
+                selectinload(User.facility),
+                selectinload(User.blood_bank)
+            )
+                .where(User.id == user_id)
+            )
+        user = result.scalar_one_or_none()
+        
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
+        
+        # Delete associated facility if exists
+        if user.facility:
+            await self.db.delete(user.facility)
+
+        # Delete associated blood bank if exists
+        if user.blood_bank:
+            await self.db.delete(user.blood_bank)
 
         await self.db.delete(user)
         await self.db.commit()
@@ -120,11 +121,16 @@ class UserService:
         Get all staff and lab manager users for a given facility.
         """
         result = await self.db.execute(
-            select(User)
-            .options(selectinload(User.work_facility))
-            .where(
-                User.work_facility_id == facility_id,
-                User.role.in_(["staff", "lab_manager"])
-            )
+        select(User)
+        .join(User.roles)
+        .options(
+            selectinload(User.work_facility),
+            selectinload(User.roles)  # Load user roles
         )
+        .where(
+            User.work_facility_id == facility_id,
+            Role.name.in_(["staff", "lab_manager"])
+        )
+        .distinct()  # Prevents duplicates if user has multiple matching roles
+    )
         return result.scalars().all()

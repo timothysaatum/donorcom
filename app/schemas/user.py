@@ -1,21 +1,34 @@
-from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict, ValidationInfo, computed_field
+from pydantic import (
+    BaseModel, 
+    EmailStr, 
+    Field, 
+    field_validator, 
+    ConfigDict, 
+    ValidationInfo
+)
 from typing import Optional
 from uuid import UUID
-from enum import Enum
 from datetime import datetime
+from enum import Enum
 
 
 class UserBase(BaseModel):
     email: EmailStr
     first_name: str = Field(..., min_length=3, max_length=50)
     last_name: str = Field(..., min_length=3, max_length=50)
-    phone: Optional[str] = Field(..., min_length=10, max_length=14)
+    phone: Optional[str] = Field(None, min_length=10, max_length=14)
+
+
+class UserRole(str, Enum):
+    facility_administrator = "facility_administrator"
+    lab_manager = "lab_manager"
+    staff = "staff"
 
 
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8, max_length=100)
     password_confirm: str
-    role: str = Field("staff", pattern="^(facility_administrator|lab_manager|staff)$")
+    role: UserRole = Field(default=UserRole.staff, description="User role")
     
     @field_validator('password_confirm')
     def passwords_match(cls, v: str, values: ValidationInfo) -> str:
@@ -38,26 +51,38 @@ class UserCreate(UserBase):
 
 class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
-    first_name: str = Field(None, min_length=3, max_length=50)
-    last_name: str = Field(None, min_length=3, max_length=50)
+    first_name: Optional[str] = Field(None, min_length=3, max_length=50)
+    last_name: Optional[str] = Field(None, min_length=3, max_length=50)
     phone: Optional[str] = Field(None, min_length=10, max_length=14)
-    role: Optional[str] = Field(None, pattern="^(facility_administrator|lab_manager|staff)$")
+    role: Optional[UserRole] = Field(None, description="User role")
 
 
 class UserResponse(UserBase):
     id: UUID
-    role: str
+    role: Optional[UserRole] = None
     is_active: bool
     created_at: datetime
     last_login: Optional[datetime] = None
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
 
+    @classmethod
+    def from_db_user(cls, user_model):
+        """Create UserResponse from SQLAlchemy user model"""
+        # Get the first (and only) role name
+        role_name = user_model.roles[0].name #if user_model.roles else None
 
-class UserRole(str, Enum):
-    facility_administrator = "facility_administrator"
-    lab_manager = "lab_manager"
-    staff = "staff"
+        return cls(
+            id=user_model.id,
+            email=user_model.email,
+            first_name=user_model.first_name,
+            last_name=user_model.last_name,
+            phone=user_model.phone,
+            role=UserRole(role_name),
+            is_active=user_model.is_active,
+            created_at=user_model.created_at,
+            last_login=user_model.last_login
+        )
 
 
 class BloodBankResponse(BaseModel):
@@ -68,8 +93,7 @@ class BloodBankResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class FacilityResponse(BaseModel):
@@ -81,8 +105,7 @@ class FacilityResponse(BaseModel):
     created_at: datetime
     blood_bank: Optional[BloodBankResponse] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserWithFacility(BaseModel):
@@ -99,10 +122,29 @@ class UserWithFacility(BaseModel):
     # For facility administrators - the facility they manage
     facility: Optional[FacilityResponse] = None
     # For staff and lab managers - the facility they work at
-    # work_facility: Optional[FacilityResponse] = None
     work_facility: Optional[FacilityResponse] = Field(None, exclude=True)
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
+
+    @classmethod
+    def from_db_user(cls, user_model):
+        """Create UserWithFacility from SQLAlchemy user model"""
+        # Get the first (and only) role name
+        role_name = user_model.roles[0].name if user_model.roles else "staff"
+        
+        return cls(
+            id=user_model.id,
+            first_name=user_model.first_name,
+            last_name=user_model.last_name,
+            email=user_model.email,
+            role=UserRole(role_name),
+            phone=user_model.phone,
+            is_active=user_model.is_active,
+            created_at=user_model.created_at,
+            last_login=user_model.last_login,
+            facility=user_model.facility,
+            work_facility=user_model.work_facility
+        )
 
     def model_dump(self, **kwargs):
         """Override model_dump to create a clean response structure"""
@@ -132,3 +174,10 @@ class AuthResponse(BaseModel):
 class LoginSchema(BaseModel):
     email: str
     password: str
+
+
+# Utility schema for role assignment
+class ChangeUserRoleRequest(BaseModel):
+    """Schema for changing a user's role"""
+    user_id: UUID
+    role: UserRole

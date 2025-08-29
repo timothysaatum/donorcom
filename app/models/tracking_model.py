@@ -1,13 +1,14 @@
 import uuid
-from sqlalchemy import Column, String, ForeignKey, DateTime, Enum, Text
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from typing import Optional
+from sqlalchemy import String, ForeignKey, DateTime
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 from enum import Enum as PyEnum
 from datetime import datetime, timezone
 
-class TrackStateStatus(PyEnum):
 
+class TrackStateStatus(PyEnum):
     dispatched = "dispatched"
     received = "received"
     returned = "returned"
@@ -15,52 +16,45 @@ class TrackStateStatus(PyEnum):
     cancelled = "cancelled"
     pending_receive = "pending receive"
 
-# class TrackState(Base):
-#     __tablename__ = "track_states"
 
-#     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, unique=True, index=True)
-    
-#     # Foreign keys
-#     blood_distribution_id = Column(UUID(as_uuid=True), ForeignKey("blood_distributions.id", ondelete="CASCADE"), nullable=False)
-#     created_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    
-#     # Tracking details
-#     status = Column(Enum(TrackStateStatus), nullable=False)
-#     location = Column(String(255), nullable=True)  # GPS coordinates or facility name
-#     notes = Column(Text, nullable=True)
-#     timestamp = Column(DateTime, default=datetime.now(timezone.utc).isoformat(), nullable=False)
-
-#     # Relationships
-#     blood_distribution = relationship("BloodDistribution", back_populates="track_states")
-#     created_by = relationship("User", foreign_keys=[created_by_id])
-#     blood_request_id = Column(UUID(as_uuid=True), ForeignKey("blood_requests.id", ondelete="CASCADE"), nullable=True)
-
-#     def __str__(self):
-#         return f"{self.status} at {self.location or 'unknown location'} ({self.timestamp})"
-    
 class TrackState(Base):
     __tablename__ = "track_states"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-
-    blood_distribution_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("blood_distributions.id"),
-        nullable=True
+    # --- Columns ---
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
     )
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    location: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), 
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    # --- Relationships ---
+    blood_distribution_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("blood_distributions.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    blood_request_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("blood_requests.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_by_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=False,
+    )
+
     blood_distribution = relationship("BloodDistribution", back_populates="track_states")
-
-    # Request is always linked
-    blood_request_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("blood_requests.id"),
-        nullable=False
-    )
     blood_request = relationship("BloodRequest", back_populates="track_states")
+    created_by = relationship("User", foreign_keys=[created_by_id])
 
-    created_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    status = Column(String, nullable=False)
-    location = Column(String, nullable=True)
-    notes = Column(String, nullable=True)
-
-    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    # --- Methods ---
+    def __str__(self) -> str:
+        return f"TrackState({self.status}, {self.timestamp})"

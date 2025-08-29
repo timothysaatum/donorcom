@@ -1,59 +1,78 @@
 import uuid
-from sqlalchemy import Column, String, ForeignKey, DateTime, Enum, Integer, func
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from typing import Optional
+from sqlalchemy import String, ForeignKey, DateTime, Enum, Integer, func
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 from enum import Enum as PyEnum
 
 
 class BloodDistributionStatus(PyEnum):
-    pending_receive = "pending recieve" # Initial status when distribution is created
-    in_transit = "in transit"  # When blood is being transported
-    returned = "returned"  # Added for cases where blood is returned to inventory
+    pending_receive = "pending recieve"  # Initial status when distribution is created
+    in_transit = "in transit"            # When blood is being transported
+    returned = "returned"                # Added for cases where blood is returned to inventory
 
 
 class BloodDistribution(Base):
     __tablename__ = "blood_distributions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, unique=True, index=True)
-    
-    # Foreign keys
-    blood_product_id = Column(UUID(as_uuid=True), ForeignKey("blood_inventory.id", ondelete="SET NULL"), nullable=True)
-    dispatched_from_id = Column(UUID(as_uuid=True), ForeignKey("blood_banks.id", ondelete="SET NULL"), nullable=False)
-    dispatched_to_id = Column(UUID(as_uuid=True), ForeignKey("facilities.id", ondelete="SET NULL"), nullable=False)
-    # track_state_id = Column(UUID(as_uuid=True), ForeignKey("track_state.id", ondelete="SET NULL"), nullable=False)
-    created_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    
-    # Distribution details
-    blood_product = Column(String(50), nullable=False)  # e.g., "Whole Blood", "Plasma", "Platelets"
-    blood_type = Column(String(10), nullable=False)     # e.g., "A+", "B-", "O+", "AB-"
-    quantity = Column(Integer, nullable=False)          # Units of blood
-    # recipient_name = Column(String(200), nullable=False)
-    
-    # Tracking details
-    status = Column(
-        Enum(BloodDistributionStatus, name="distribution_status"), 
-        nullable=False, 
-        default=BloodDistributionStatus.pending_receive
+    # --- Columns ---
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        unique=True,
+        index=True,
     )
-    date_dispatched = Column(DateTime, nullable=True)
-    date_delivered = Column(DateTime, nullable=True)
-    tracking_number = Column(String(100), nullable=True)
+    blood_product: Mapped[str] = mapped_column(String(50), nullable=False)
+    blood_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[BloodDistributionStatus] = mapped_column(
+        Enum(BloodDistributionStatus, name="distribution_status"),
+        nullable=False,
+        default=BloodDistributionStatus.pending_receive,
+    )
+    
+    date_dispatched: Mapped[Optional[DateTime]] = mapped_column(DateTime, nullable=True)
+    date_delivered: Mapped[Optional[DateTime]] = mapped_column(DateTime, nullable=True)
+    tracking_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
-    # Administrative
-    notes = Column(String(500), nullable=True)
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    # Relationships
-    inventory_item = relationship("BloodInventory", foreign_keys=[blood_product_id], backref="distributions")
-    dispatched_from = relationship("BloodBank", foreign_keys=[dispatched_from_id], backref="outgoing_distributions")
-    dispatched_to = relationship("Facility", foreign_keys=[dispatched_to_id], backref="incoming_distributions")
-    created_by = relationship("User", foreign_keys=[created_by_id], backref="created_distributions")
+    # --- Relationships ---
+    blood_product_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("blood_inventory.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    dispatched_from_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("blood_banks.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    dispatched_to_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("facilities.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
-    # track_state = relationship("TrackState", foreign_keys=[track_state_id], backref="distribution")
-    track_states = relationship("TrackState", back_populates="blood_distribution", cascade="all, delete-orphan")
+    inventory_item = relationship("BloodInventory", foreign_keys=[blood_product_id], back_populates="distributions")
+    dispatched_from = relationship("BloodBank", foreign_keys=[dispatched_from_id], back_populates="outgoing_distributions")
+    dispatched_to = relationship("Facility", foreign_keys=[dispatched_to_id], back_populates="incoming_distributions")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    track_states = relationship(
+        "TrackState", 
+        back_populates="blood_distribution", 
+        cascade="all, delete-orphan",
+    )
 
-
-    def __str__(self):
+    # --- Methods ---
+    def __str__(self) -> str:
         return f"{self.blood_product} ({self.blood_type}) → {self.dispatched_to.facility_name}"

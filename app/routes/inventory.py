@@ -1,125 +1,3 @@
-# from fastapi import APIRouter, Depends, HTTPException, status, Path, Query, BackgroundTasks
-# from sqlalchemy.ext.asyncio import AsyncSession
-# from app.schemas.inventory import (
-#     BloodInventoryCreate, BloodInventoryResponse, BloodInventoryUpdate, 
-#     BloodInventoryDetailResponse, BloodInventoryBatchCreate, BloodInventoryBatchUpdate,
-#     BloodInventoryBatchDelete, PaginationParams, PaginatedResponse, BatchOperationResponse, InventoryStatistics,
-#     BloodInventorySearchParams,
-#     PaginatedFacilityResponse
-# )
-# from app.services.inventory import BloodInventoryService
-# from app.models.user import User
-# from app.models.inventory import BloodInventory
-# from app.models.health_facility import Facility
-# from app.utils.security import get_current_user
-# from app.dependencies import get_db
-# from uuid import UUID
-# from typing import Optional
-# from sqlalchemy.future import select
-# from app.models.blood_bank import BloodBank
-# from datetime import datetime
-# import logging
-
-# logger = logging.getLogger(__name__)
-
-# router = APIRouter(
-#     prefix="/blood-inventory",
-#     tags=["blood inventory"]
-# )
-
-
-# async def get_user_blood_bank_id(db, user_id):
-#     """
-#     Returns just the blood bank ID (UUID) for the user.
-#     """
-#     result = await db.execute(
-#         select(BloodBank.id)  # ← Changed this line
-#         .join(Facility, BloodBank.facility_id == Facility.id)
-#         .where(
-#             (Facility.facility_manager_id == user_id) |
-#             (Facility.id.in_(
-#                 select(User.work_facility_id).where(User.id == user_id)
-#             )) |
-#             (BloodBank.manager_id == user_id)
-#         )
-#     )
-    
-#     return result.scalar()
-
-# # Create pagination dependency
-# def get_pagination_params(
-#     page: int = Query(1, ge=1, description="Page number (1-based)"),
-#     page_size: int = Query(20, ge=1, le=100, description="Items per page (max 100)"),
-#     sort_by: Optional[str] = Query(None, description="Field to sort by"),
-#     sort_order: str = Query("desc", regex="^(asc|desc)$", description="Sort order")
-# ) -> PaginationParams:
-#     return PaginationParams(
-#         page=page,
-#         page_size=page_size,
-#         sort_by=sort_by,
-#         sort_order=sort_order
-#     )
-
-
-# @router.post("/", response_model=BloodInventoryResponse, status_code=status.HTTP_201_CREATED)
-# async def create_blood_unit(
-#     blood_data: BloodInventoryCreate,
-#     db: AsyncSession = Depends(get_db),
-#     current_user: User = Depends(get_current_user)
-# ):
-#     """
-#     Add a new blood unit to inventory.
-#     The blood bank and user who added it are automatically assigned.
-#     """
-#     blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
-    
-#     blood_service = BloodInventoryService(db)
-#     new_blood_unit = await blood_service.create_blood_unit(
-#         blood_data=blood_data,
-#         blood_bank_id=blood_bank_id,
-#         added_by_id=current_user.id
-#     )
-
-#     return BloodInventoryResponse.model_validate(new_blood_unit, from_attributes=True)
-
-
-# @router.post("/batch", response_model=BatchOperationResponse, status_code=status.HTTP_201_CREATED)
-# async def batch_create_blood_units(
-#     batch_data: BloodInventoryBatchCreate,
-#     background_tasks: BackgroundTasks,
-#     db: AsyncSession = Depends(get_db),
-#     current_user: User = Depends(get_current_user)
-# ):
-#     """
-#     Batch create multiple blood units for improved performance.
-#     Handles up to 1000 units per request with transaction safety.
-#     """
-#     blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
-#     blood_service = BloodInventoryService(db)
-    
-#     try:
-#         created_units = await blood_service.batch_create_blood_units(
-#             blood_units_data=batch_data.blood_units,
-#             blood_bank_id=blood_bank_id,
-#             added_by_id=current_user.id
-#         )
-        
-#         logger.info(f"Batch created {len(created_units)} blood units for bank {blood_bank_id}")
-        
-#         return BatchOperationResponse(
-#             success=True,
-#             processed_count=len(created_units),
-#             created_ids=[unit.id for unit in created_units]
-#         )
-    
-#     except Exception as e:
-#         logger.error(f"Batch create failed: {str(e)}")
-#         return BatchOperationResponse(
-#             success=False,
-#             processed_count=0,
-#             failed_count=len(batch_data.blood_units),
-#             errors=[str(e)]
-#         )
 from fastapi import APIRouter, Depends, HTTPException, status, Path, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.inventory import (
@@ -141,6 +19,7 @@ from sqlalchemy.future import select
 from app.models.blood_bank import BloodBank
 from datetime import datetime
 import logging
+from app.utils.permission_checker import require_permission
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +66,11 @@ def get_pagination_params(
 async def create_blood_unit(
     blood_data: BloodInventoryCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "inventory.manage", 
+        "blood.inventory.manage"
+    ))
 ):
     """
     Add a new blood unit to inventory.
@@ -210,7 +93,11 @@ async def batch_create_blood_units(
     batch_data: BloodInventoryBatchCreate,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "inventory.manage",
+        "blood.inventory.manage"
+    ))
 ):
     """
     Batch create multiple blood units for improved performance.
@@ -277,7 +164,13 @@ async def get_facilities_with_available_blood(
 async def batch_update_blood_units(
     batch_data: BloodInventoryBatchUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(
+        require_permission(
+        "facility.manage",
+        "inventory.manage",
+        "blood.inventory.manage"
+    ))
+):
     """
     Batch update multiple blood units.
     Each update must include the unit ID and fields to update.
@@ -330,7 +223,12 @@ async def batch_update_blood_units(
 async def batch_delete_blood_units(
     batch_data: BloodInventoryBatchDelete,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(
+        require_permission(
+        "facility.manage",
+        "inventory.manage",
+        "blood.inventory.manage"
+    ))
 ):
     """
     Batch delete multiple blood units.
@@ -518,7 +416,12 @@ async def update_blood_unit(
     blood_unit_id: UUID,
     blood_data: BloodInventoryUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(
+        require_permission(
+        "facility.manage",
+        "inventory.manage",
+        "blood.inventory.manage"
+    ))
 ):
     """
     Update a blood unit.
@@ -549,7 +452,12 @@ async def update_blood_unit(
 async def delete_blood_unit(
     blood_unit_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(
+        require_permission(
+        "facility.manage",
+        "inventory.manage",
+        "blood.inventory.manage"
+    ))
 ):
     """
     Delete a blood unit.
@@ -580,7 +488,13 @@ async def get_expiring_blood_units_paginated(
     days: int = Path(..., ge=1, le=90, description="Number of days to check for expiration"),
     pagination: PaginationParams = Depends(get_pagination_params),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(
+        require_permission(
+        "facility.manage",
+        "inventory.manage",
+        "blood.inventory.manage"
+    ))
+):
     """
     Get paginated blood units expiring in the specified number of days.
     Only shows units from the blood bank associated with the current user.
@@ -638,15 +552,19 @@ async def get_expiring_blood_units_paginated(
 
 @router.get("/statistics/overview", response_model=InventoryStatistics)
 async def get_inventory_statistics(
-    blood_bank_id: Optional[UUID] = Query(None, description="Filter statistics by blood bank"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(
+        require_permission(
+        "facility.manage",
+        "inventory.manage"
+    ))
+):
     """
     Get comprehensive inventory statistics.
     If blood_bank_id is not provided, uses the current user's blood bank.
     """
-    if not blood_bank_id:
-        blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
+ 
+    blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
     
     blood_service = BloodInventoryService(db)
     stats = await blood_service.get_inventory_statistics(blood_bank_id)
@@ -656,10 +574,13 @@ async def get_inventory_statistics(
 
 @router.get("/export/csv")
 async def export_inventory_csv(
-    blood_bank_id: Optional[UUID] = Query(None, description="Filter by blood bank"),
     blood_type: Optional[str] = Query(None, description="Filter by blood type"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "inventory.manage"
+    ))
+):
     """
     Export blood inventory data as CSV.
     Supports filtering and is optimized for large datasets.
@@ -668,8 +589,7 @@ async def export_inventory_csv(
     import csv
     import io
     
-    if not blood_bank_id:
-        blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
+    blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
     
     blood_service = BloodInventoryService(db)
     

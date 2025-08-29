@@ -15,6 +15,7 @@ from app.schemas.request import (
     BloodRequestBulkCreateResponse,
     RequestDirection
 )
+from app.utils.permission_checker import require_permission
 import logging
 from app.services.request import BloodRequestService
 from app.models.request import RequestStatus, ProcessingStatus
@@ -29,14 +30,18 @@ router = APIRouter(
 async def create_blood_request(
     request_data: BloodRequestCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.inventory.can_create"
+    ))
+):
     """
     Create blood requests to multiple facilities.
     
     The system will:
     1. Create individual requests for each specified facility
     2. Group them together with a common group ID
-    3. Automatically cancel related requests when one is approved/fulfilled
     """
     service = BloodRequestService(db)
     return await service.create_bulk_request(request_data, requester_id=current_user.id)
@@ -45,7 +50,12 @@ async def create_blood_request(
 @router.get("/my-requests", response_model=List[BloodRequestResponse])
 async def list_my_requests(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.inventory.can_view"
+    ))
+):
     """List all individual requests made by the current user"""
     service = BloodRequestService(db)
     return await service.list_requests_by_user(user_id=current_user.id)
@@ -59,7 +69,12 @@ async def list_facility_requests(
     page: int = Query(1, ge=1, description="Page number (starts from 1)"),
     page_size: int = Query(10, ge=1, le=100, description="Number of items per page (max 100)"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.inventory.can_view"
+    ))
+):
     """
     List requests made by and/or received by the current user's facility with pagination
     - 'sent': Requests sent from this facility
@@ -92,7 +107,12 @@ async def list_facility_requests(
 @router.get("/groups", response_model=List[BloodRequestGroupResponse])
 async def list_my_request_groups(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.inventory.can_view"
+    ))
+):
     """
     List request groups made by the current user.
 
@@ -106,7 +126,11 @@ async def list_my_request_groups(
 @router.get("/statistics")
 async def get_request_statistics(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage"
+    ))
+):
     """Get request statistics for the current user"""
     service = BloodRequestService(db)
     return await service.get_request_statistics(user_id=current_user.id)
@@ -116,7 +140,12 @@ async def get_request_statistics(
 async def get_request_group(
     request_group_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.inventory.can_view"
+    ))
+):
     """Get detailed information about a request group"""
     service = BloodRequestService(db)
     group = await service.get_request_group(request_group_id)
@@ -134,7 +163,11 @@ async def get_request_group(
 async def get_blood_request(
     request_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.inventory.can_view"
+    ))
 ):
     service = BloodRequestService(db)
     request = await service.get_request(request_id)
@@ -159,7 +192,12 @@ async def update_blood_request(
     request_id: UUID,
     update_data: BloodRequestUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.inventory.can_update"
+    ))
+):
     """
     Update a blood request.
     
@@ -183,7 +221,12 @@ async def update_blood_request(
 async def delete_blood_request(
     request_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.inventory.can_delete"
+    ))
+):
     """Delete a blood request (only if pending or cancelled)"""
     service = BloodRequestService(db)
     
@@ -203,7 +246,12 @@ async def delete_blood_request(
 async def list_requests_by_status(
     status: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.inventory.can_view"
+    ))
+):
     """List requests by status for the current user"""
     service = BloodRequestService(db)
     try:
@@ -223,7 +271,11 @@ async def list_requests_by_status(
 async def list_facility_requests_by_id(
     facility_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage"
+    ))
+):
     """
     List all requests for a specific facility.
     
@@ -243,7 +295,11 @@ async def respond_to_request(
     request_id: UUID,
     response_data: BloodRequestStatusUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.inventory.can_update"
+    ))):
     """
     Allow facility staff to respond to a blood request.
     

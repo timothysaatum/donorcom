@@ -1,4 +1,3 @@
-# routes/track_state.py
 from fastapi import APIRouter, Depends, HTTPException, status, Path
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.tracking_schema import (
@@ -93,50 +92,3 @@ async def get_track_states_for_distribution(
         )
         for state in track_states
     ]
-
-# @router.get("/distribution/{distribution_id}/latest", response_model=TrackStateDetailResponse)
-# async def get_latest_track_state(
-#     distribution_id: UUID = Path(..., description="The ID of the distribution to get latest state for"),
-#     db: AsyncSession = Depends(get_db),
-#     current_user: User = Depends(get_current_user)
-# ):
-#     """
-#     Get the most recent tracking state for a distribution.
-#     """
-#     track_service = TrackStateService(db)
-#     track_state = await track_service.get_latest_state_for_distribution(distribution_id)
-    
-#     if not track_state:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail="No track states found for this distribution"
-#         )
-    
-#     # Add authorization check here
-    
-#     response = TrackStateDetailResponse(
-#         **TrackStateResponse.model_validate(track_state, from_attributes=True).model_dump(),
-#         created_by_name=track_state.created_by.last_name if track_state.created_by else None
-#     )
-    
-#     return response
-
-# @router.delete("/{track_state_id}", status_code=status.HTTP_204_NO_CONTENT)
-# async def delete_track_state(
-#     track_state_id: UUID = Path(..., description="The ID of the track state to delete"),
-#     db: AsyncSession = Depends(get_db),
-#     current_user: User = Depends(get_current_user)
-# ):
-#     """
-#     Delete a tracking state.
-#     """
-#     track_service = TrackStateService(db)
-#     success = await track_service.delete_track_state(track_state_id)
-    
-#     if not success:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail="Track state not found"
-#         )
-    
-#     return None
