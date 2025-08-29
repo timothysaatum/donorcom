@@ -1,3 +1,4 @@
+from app.utils.permission_checker import require_permission
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
@@ -12,23 +13,41 @@ from app.schemas.stats_schema import (
     TransferTrendsResponse
 )
 from app.services.stats_service import StatsService
-from app.utils.security import get_current_user
 from app.models.user import User
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
-
 def get_user_facility_id(current_user: User) -> str:
-    """Extract facility ID based on user role."""
+    """
+    Extract facility ID based on user role - handles edge cases.
+    Priority: facility_administrator > lab_manager > staff
+    """
     user_facility_id = None
+    user_role_names = {role.name for role in current_user.roles}  # Use set for faster lookup
     
-    if current_user.role == "facility_administrator":
+    # Check roles in priority order
+    if "facility_administrator" in user_role_names:
         user_facility_id = current_user.facility.id if current_user.facility else None
-    elif current_user.role in ["lab_manager", "staff"]:
-        user_facility_id = current_user.work_facility_id
+        if not user_facility_id:
+            raise HTTPException(
+                status_code=400, 
+                detail="Facility administrator must be associated with a facility"
+            )
     
-    if not user_facility_id:
-        raise HTTPException(status_code=400, detail="No facility found for this user")
+    elif user_role_names & {"lab_manager", "staff"}:  # Intersection check
+        user_facility_id = current_user.work_facility_id
+        if not user_facility_id:
+            raise HTTPException(
+                status_code=400, 
+                detail="Staff and lab managers must be associated with a work facility"
+            )
+    
+    else:
+        # User has roles but none that give facility access
+        raise HTTPException(
+            status_code=403, 
+            detail=f"User roles {list(user_role_names)} do not provide facility access"
+        )
     
     return user_facility_id
 
@@ -36,7 +55,11 @@ def get_user_facility_id(current_user: User) -> str:
 @router.get("/summary", response_model=DashboardSummaryResponse)
 async def dashboard_summary(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.inventory.can_view"
+    )),
 ):
     """
     Get dashboard summary for a facility.
@@ -80,7 +103,11 @@ async def monthly_transfer_stats(
     year: Optional[int] = Query(None, description="Year to get statistics for (defaults to current year)"),
     blood_product_types: Optional[List[BloodProductType]] = Query(None, description="Filter by specific blood product types"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.inventory.can_view"
+    )),
 ):
     """
     Get monthly blood transfer statistics for the current user's facility.
@@ -131,7 +158,11 @@ async def blood_product_breakdown(
     year: Optional[int] = Query(None, description="Year to get statistics for (defaults to current year)"),
     month: Optional[int] = Query(None, ge=1, le=12, description="Optional month filter (1-12)"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.inventory.can_view"
+    )),
 ):
     """
     Breakdown of blood transfers by product type for the current user's facility.
@@ -177,7 +208,11 @@ async def blood_product_breakdown(
 async def transfer_trends(
     days: int = Query(30, ge=1, le=365, description="Number of days to include in the trend (1-365)"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.inventory.can_view"
+    )),
 ):
     """
     Daily transfer trends for the current user's facility over the last N days.

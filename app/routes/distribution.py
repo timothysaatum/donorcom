@@ -1,19 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Path
+from app.models.health_facility import Facility
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import or_
 from app.schemas.distribution import (
     BloodDistributionCreate, 
     BloodDistributionResponse, 
     BloodDistributionUpdate, 
     BloodDistributionDetailResponse,
-    DistributionStatus,
-    # DistributionStats
+    DistributionStatus
 )
 from app.services.distribution import BloodDistributionService
 from app.models.user import User
 from app.models.blood_bank import BloodBank
 from app.models.distribution import BloodDistributionStatus
 from app.utils.security import get_current_user
+from app.utils.permission_checker import require_permission
 from app.dependencies import get_db
 from uuid import UUID
 from typing import List, Optional
@@ -28,18 +30,35 @@ router = APIRouter(
 # Helper function to get blood bank ID for the current user
 async def get_user_blood_bank_id(db: AsyncSession, user_id: UUID) -> UUID:
     """Get the blood bank ID associated with the user"""
-    # Check if user is directly a blood bank manager
+    
     result = await db.execute(
-        select(BloodBank).where(BloodBank.manager_id == user_id)
+    select(BloodBank).where(
+        or_(
+            # Case 1: User is the blood bank manager
+            BloodBank.manager_id == user_id,
+
+            # Case 2: User is staff working in the facility
+            BloodBank.facility_id == (
+                select(User.work_facility_id)
+                .where(User.id == user_id)
+                .scalar_subquery()
+            ),
+
+            # Case 3: User is the facility manager
+            BloodBank.facility_id == (
+                select(Facility.id)
+                .where(Facility.facility_manager_id == user_id)
+                .scalar_subquery()
+            ),
+        )
     )
+)
+
     blood_bank = result.scalar_one_or_none()
     
     if blood_bank:
         return blood_bank.id
-    
-    # TODO: If you have staff associations in your model, you could add additional logic here
-    # to check if the user is a staff member at a blood bank
-    
+
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="You are not associated with any blood bank"
@@ -50,7 +69,11 @@ async def get_user_blood_bank_id(db: AsyncSession, user_id: UUID) -> UUID:
 async def create_distribution(
     distribution_data: BloodDistributionCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.issue.can_create"
+    ))
 ):
     """
     Create a new blood distribution.
@@ -97,7 +120,12 @@ async def create_distribution(
 async def get_distribution(
     distribution_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(
+        require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.issue.can_view"
+    ))
 ):
     """Get details of a specific blood distribution"""
     distribution_service = BloodDistributionService(db)
@@ -111,11 +139,12 @@ async def get_distribution(
     
     # Authorization check: user must be associated with either the sending blood bank or receiving facility
     blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
-    
-    # If the user is not from the blood bank that dispatched this, restrict access
-    if distribution.dispatched_from_id != blood_bank_id:
-        # TODO: You may want to add a check here if the user is from the receiving facility
-        # For now, we restrict it to the dispatching blood bank
+
+    # Restrict access to dispatching or receiving blood bank
+    if (
+        distribution.dispatched_from_id != blood_bank_id or 
+        distribution.dispatched_to_id != blood_bank_id
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You don't have permission to view this distribution"
@@ -138,7 +167,11 @@ async def list_distributions(
     facility_id: Optional[UUID] = None,
     recent_days: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.issue.can_view"
+    ))
 ):
     """
     List blood distributions with optional filtering.
@@ -147,7 +180,11 @@ async def list_distributions(
     """
     # Get the blood bank associated with the user
     blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
-    
+    if not blood_bank_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User is not associated with any blood bank"
+        )
     distribution_service = BloodDistributionService(db)
     
     # Get all distributions for this blood bank first
@@ -183,7 +220,11 @@ async def update_distribution(
     distribution_id: UUID,
     distribution_data: BloodDistributionUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.issue.can_update"
+    ))
 ):
     """
     Update a blood distribution.
@@ -232,7 +273,11 @@ async def update_distribution(
 async def delete_distribution(
     distribution_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.issue.can_delete"
+    ))
 ):
     """
     Delete a blood distribution.
@@ -265,7 +310,11 @@ async def delete_distribution(
 async def get_distributions_by_facility(
     facility_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.issue.can_view"
+    ))
 ):
     """
     Get all blood distributions for a specific facility from the user's blood bank.
@@ -275,5 +324,9 @@ async def get_distributions_by_facility(
     
     distribution_service = BloodDistributionService(db)
     all_distributions = await distribution_service.get_distributions_by_facility(facility_id)
-    
-    # Filter to only show distributions from the user's blood bank
+    # Filter to only include distributions from this user's blood bank
+    user_distributions = [
+        dist for dist in all_distributions
+        if dist.dispatched_from_id == blood_bank_id
+    ]
+    return user_distributions

@@ -1,5 +1,8 @@
-from app.services.scheduler import start_scheduler
-from fastapi import FastAPI, Request
+from contextlib import asynccontextmanager
+from app.services.scheduler import start_scheduler, stop_scheduler
+from app.tasks.reverse_address import start_periodic_task, stop_periodic_task
+from app.utils.create_user_roles import seed_roles_and_permissions
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from app.routes import router as api_router
@@ -9,21 +12,61 @@ from app.admin.user_admin import UserAdmin
 from app.admin.facility_admin import FacilityAdmin
 from app.admin.blood_bank_admin import BloodBankAdmin
 from app.admin.inventory import BloodInventoryAdmin
-from app.database import engine
+from app.database import engine, async_session
+from app.dependencies import get_db
 from fastapi.responses import RedirectResponse
-from tasks.reverse_address import start_periodic_task
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+from app.models.rbac import Role, Permission
+from app.middlewares.logging_middleware import LoggingMiddleware
 
-def create_application() -> FastAPI:
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for FastAPI application startup and shutdown events.
+    """
+    # Startup
+    
+    start_scheduler()
+    start_periodic_task()
+    
+    # Create database session for seeding roles and permissions
+    try:
+        async with async_session() as db:
+            try:
+                await seed_roles_and_permissions(db)
+                
+            except Exception as e:
+                await db.rollback()
+                
+                raise
+    except Exception as e:
+        raise
+    
+    yield
+    
+    # Shutdown (add any cleanup code here if needed)
+    stop_scheduler()  # Gracefully stop the scheduler for refreshing dashboard metrics
+    stop_periodic_task()  # Stop the reverse address task for computing gps coordinates
+
+
+def create_application() -> FastAPI:  # Create the fastapi application
     app = FastAPI(
         title=settings.PROJECT_NAME,
         description=settings.PROJECT_DESCRIPTION,
         version=settings.VERSION,
         docs_url=settings.DOCS_URL,
-        redoc_url=None
+        redoc_url=None,
+        lifespan=lifespan  # Add the lifespan context manager
     )
+    
     @app.middleware("http")
     async def https_redirect(request: Request, call_next):
-        # Check if request came via HTTP (Classic LB terminates HTTPS and forwards as HTTP)
+        # Check if request came via HTTP (Classic LB terminates HTTPS 
+        # and forwards as HTTP)
         if request.headers.get("x-forwarded-proto") == "http":
             url = request.url.replace(scheme="https")
             return RedirectResponse(url)
@@ -39,15 +82,17 @@ def create_application() -> FastAPI:
         expose_headers=["Content-Length", "Content-Type", "Set-Cookie"],
         max_age=600,  # Cache preflight requests for 10 minutes
     )
+    
+    # Logging middleware
+    app.add_middleware(
+        LoggingMiddleware,
+        # exclude_paths=["/", "/metrics", "/docs", "/redoc", "/openapi.json"]
+        )
 
     # Include API routes
     app.include_router(api_router, prefix=settings.API_PREFIX)
 
-    @app.on_event("startup")
-    async def startup_event():
-        start_scheduler()
-        start_periodic_task()
-
+    # SQLAdmin setup
     admin = Admin(app, engine, base_url="/admin")
     admin.add_view(UserAdmin)
     admin.add_view(FacilityAdmin)
@@ -81,6 +126,7 @@ def create_application() -> FastAPI:
             f"{settings.API_PREFIX}/users/delete-account",
             f"{settings.API_PREFIX}/users/me",
             f"{settings.API_PREFIX}/users/auth/logout",
+            f"{settings.API_PREFIX}/users/auth/sessions",
             f"{settings.API_PREFIX}/users/update-account",
             f"{settings.API_PREFIX}/blood-inventory",
             f"{settings.API_PREFIX}/blood-distribution",
@@ -105,9 +151,50 @@ def create_application() -> FastAPI:
 
     # Assign the custom OpenAPI schema
     app.openapi = custom_openapi
+
+    # Health check endpoint
     @app.get("/")
     def read_root():
         return {"status": "ok"}
+    
+    @app.get("/debug/roles")
+    async def check_roles(db: AsyncSession = Depends(get_db)):
+        """Debug endpoint to check if roles and permissions were created"""
+        try:
+            # Get all roles with their permissions
+            result = await db.execute(
+                select(Role).options(selectinload(Role.permissions))
+            )
+            roles = result.scalars().all()
+            
+            roles_data = []
+            for role in roles:
+                roles_data.append({
+                    "id": role.id,
+                    "name": role.name,
+                    "permissions": [perm.name for perm in role.permissions]
+                })
+            
+            return {
+                "total_roles": len(roles),
+                "roles": roles_data
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    @app.get("/debug/permissions")
+    async def check_permissions(db: AsyncSession = Depends(get_db)):
+        """Debug endpoint to check all permissions"""
+        try:
+            result = await db.execute(select(Permission))
+            permissions = result.scalars().all()
+            
+            return {
+                "total_permissions": len(permissions),
+                "permissions": [{"id": p.id, "name": p.name} for p in permissions]
+            }
+        except Exception as e:
+            return {"error": str(e)}
     
     @app.options("/{full_path:path}")
     async def options_handler(full_path: str):

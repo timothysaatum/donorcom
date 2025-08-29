@@ -8,13 +8,14 @@ from app.models.user import User
 from app.utils.security import get_password_hash
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
+from app.utils import supervisor
 
-# --- Database URL ---
+
 DATABASE_URL = "sqlite+aiosqlite:///./db.sqlite3"
 engine = create_async_engine(DATABASE_URL, echo=True)
 AsyncSessionLocal = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
-# --- Randomization lists ---
+
 blood_types = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"]
 valid_products = [
     'Whole Blood','whole blood','Red Blood Cells','red blood cells',
@@ -32,20 +33,26 @@ async def seed_db():
             for i in range(2):
                 email = f"admin{i+1}@example.com"
                 password = "SecureP@ssw0rd!"
-                hashed_password = get_password_hash(password)  # <-- hash password here
+                hashed_password = get_password_hash(password)
                 user = User(
                     first_name=f"Admin{i+1}",
                     last_name="User",
                     email=email,
                     phone=f"+2335000000{i+1}",
-                    password=hashed_password,  # <-- use hashed password
+                    password=hashed_password,
                     is_verified=True,
-                    role="facility_administrator"
                 )
                 db.add(user)
-                await db.flush()  # assign ID
-                admin_users.append(user)
 
+                await db.flush()  # assign ID
+                
+                await supervisor.assign_role(
+                    db, user_id=user.id, 
+                    role_name="facility_administrator", 
+                    auto_commit=False
+                )
+                
+                admin_users.append(user)
                 # Save credentials for devs
                 credentials_list.append(f"{email} | {password}")
 
@@ -64,7 +71,7 @@ async def seed_db():
                     facility_manager_id=user.id
                 )
                 db.add(facility)
-                await db.flush()  # assign ID
+                await db.flush()
                 facilities.append(facility)
 
                 # --- 3. Create BloodBank and attach to Facility ---

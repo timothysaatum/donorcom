@@ -1,7 +1,10 @@
 import uuid
-from sqlalchemy import Date, Column, String, Integer, DateTime, ForeignKey, Enum, func, Text, Boolean, text
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from typing import Optional
+from sqlalchemy import (
+    Date, String, Integer, DateTime, ForeignKey, Enum, func, Text, Boolean
+)
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 import enum
 
@@ -29,49 +32,85 @@ class BloodRequest(Base):
 
     __tablename__ = "blood_requests"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    # --- Columns ---
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True,
+    )
+    request_group_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        nullable=False,
+        index=True,
+    )
+    is_master_request: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    requester_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
-    fulfilled_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    facility_id = Column(UUID(as_uuid=True), ForeignKey("facilities.id", ondelete="SET NULL"))
-    
-    # Group ID to link related requests across multiple facilities
-    request_group_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    
-    # Flag to indicate if this is the primary/master request
-    is_master_request = Column(Boolean, default=False)
+    blood_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    blood_product: Mapped[str] = mapped_column(String(50), nullable=False)
+    quantity_requested: Mapped[int] = mapped_column(Integer, nullable=False)
+    request_status: Mapped[RequestStatus] = mapped_column(
+        Enum(RequestStatus), 
+        default=RequestStatus.pending,
+    )
+    processing_status: Mapped[ProcessingStatus] = mapped_column(
+        Enum(ProcessingStatus), 
+        default=ProcessingStatus.pending,
+    )
+    priority: Mapped[Optional[PriorityStatus]] = mapped_column(
+        Enum(PriorityStatus), 
+        nullable=True, 
+        default=PriorityStatus.not_urgent,
+    )
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    cancellation_reason: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    option: Mapped[str] = mapped_column(String(10), default="sent")
 
-    blood_type = Column(String(10), nullable=False)
-    blood_product = Column(String(50), nullable=False)
-    quantity_requested = Column(Integer, nullable=False)
-    request_status = Column(Enum(RequestStatus), default=RequestStatus.pending)
-    processing_status = Column(Enum(ProcessingStatus), default=ProcessingStatus.pending)
-    priority = Column(Enum(PriorityStatus), nullable=True, default=PriorityStatus.not_urgent)
-    notes = Column(Text, nullable=True)
+    created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    # Cancellation reason for auto-cancelled requests
-    cancellation_reason = Column(String(200), nullable=True)
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
-    track_states = relationship("TrackState", back_populates="blood_request", cascade="all, delete-orphan")
-    # Option field to track request direction
-    option = Column(String(10), default="sent")
+    # --- Relationships ---
+    requester_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+    )
+    fulfilled_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    facility_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("facilities.id", ondelete="CASCADE"),
+    )
 
-    # Relationships
     requester = relationship("User", foreign_keys=[requester_id])
     fulfilled_by = relationship("User", foreign_keys=[fulfilled_by_id])
-    facility = relationship("Facility")
-    
-    def __repr__(self):
+    facility = relationship("Facility", back_populates="blood_requests")
+    track_states = relationship(
+        "TrackState", 
+        back_populates="blood_request", 
+        cascade="all, delete-orphan",
+    )
+
+    # --- Methods ---
+    def __repr__(self) -> str:
         return f"<BloodRequest(id={self.id}, requester_id={self.requester_id}, status={self.request_status}, group_id={self.request_group_id})>"
 
 
 class DashboardDailySummary(Base):
     __tablename__ = "dashboard_daily_summary"
 
-    facility_id = Column(UUID(as_uuid=True), ForeignKey("facilities.id", ondelete="CASCADE"), primary_key=True)
-    date = Column(Date, primary_key=True)
-    total_requests = Column(Integer, default=0, nullable=False)
-    total_transferred = Column(Integer, default=0, nullable=False)
-    total_stock = Column(Integer, default=0, nullable=False)
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    # --- Columns ---
+    date: Mapped[Date] = mapped_column(Date, primary_key=True)
+    total_requests: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_transferred: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_stock: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    updated_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # --- Relationships ---
+    facility_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("facilities.id", ondelete="CASCADE"),
+        primary_key=True,
+    )

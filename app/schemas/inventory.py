@@ -40,7 +40,7 @@ class BloodInventoryUpdate(BaseModel):
     blood_product: Optional[str] = Field(None, min_length=1, max_length=50)
     blood_type: Optional[str] = Field(None, min_length=1, max_length=10)
     quantity: Optional[int] = Field(None, gt=0)
-    expiry_date: date = Field(..., description="Expiration date of the blood unit")
+    expiry_date: Optional[date] = Field(None, description="Expiration date of the blood unit")
 
     @field_validator('blood_type')
     def validate_blood_type(cls, v):

@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     DOCS_URL: str = "/docs"
 
     # Environment
-    ENVIRONMENT: str = Field("development", env="ENVIRONMENT")  # 'development' or 'production'
+    ENVIRONMENT: str = Field("development", env="ENVIRONMENT")
 
     # Database
     DATABASE_URL: str = Field(default=None, env="DATABASE_URL")
@@ -27,15 +27,10 @@ class Settings(BaseSettings):
         default=[
             # Development origins
             "http://localhost:3000",
-            "http://localhost:3001",
-            "http://localhost:8080",
-            "http://127.0.0.1:3000",
-            "http://127.0.0.1:8080",
             "http://localhost",
 
             # Production frontend origins
             "https://hemolync.vercel.app",
-            "https://hemolync.onrender.com",
             "https://hemolync.donorcom.org",
             "https://www.hemolync.donorcom.org",
         ]

@@ -322,28 +322,49 @@ class BloodRequestService:
 
         master_request = next((r for r in requests if r.is_master_request), requests[0])
         related_requests = [r for r in requests if not r.is_master_request]
-        
+    
         if not master_request:
             raise HTTPException(status_code=404, detail="Master request not found in group")
-        
-        # OPTIMIZATION: Count statuses in single pass instead of multiple sum() calls
-        status_counts = {'pending': 0, 'accepted': 0, 'rejected': 0, 'cancelled': 0}
-        for r in requests:
-            if r.request_status in status_counts:
-                status_counts[r.request_status.value] += 1
     
+        # OPTIMIZATION: Count statuses in single pass - FIXED
+        status_counts = {
+            'pending': 0, 
+            'approved': 0,  # Changed from 'accepted'
+            'rejected': 0, 
+            'fulfilled': 0,  # Added missing count
+            'cancelled': 0
+        }
+    
+        unique_facilities = set()
+    
+        for r in requests:
+        # Fix: Get the actual status value
+            status = r.request_status.value if hasattr(r.request_status, 'value') else str(r.request_status).lower()
+
+        # Count statuses
+        if status in status_counts:
+            status_counts[status] += 1
+        
+        # Track unique facilities
+        unique_facilities.add(r.facility_id)
+
+        # Convert ORM objects to response models
+        master_request_response = BloodRequestResponse.from_orm(master_request)
+        related_requests_response = [BloodRequestResponse.from_orm(r) for r in related_requests]
+
         return BloodRequestGroupResponse(
             request_group_id=request_group_id,
             blood_type=master_request.blood_type,
             blood_product=master_request.blood_product,
-            quantity_requested=master_request.quantity_requested,
+            quantity_requested=sum(r.quantity_requested for r in requests),  # Sum all requests
             notes=master_request.notes,
-            master_request=master_request,
-            related_requests=related_requests,
-            total_facilities=len(requests),
+            master_request=master_request_response,  # Convert to response model
+            related_requests=related_requests_response,  # Convert to response models
+            total_facilities=len(unique_facilities),  # Count unique facilities
             pending_count=status_counts['pending'],
-            accepted_count=status_counts['accepted'],
+            approved_count=status_counts['approved'],
             rejected_count=status_counts['rejected'],
+            fulfilled_count=status_counts['fulfilled'],
             cancelled_count=status_counts['cancelled'],
             created_at=master_request.created_at,
             updated_at=max(r.updated_at for r in requests)
@@ -510,45 +531,74 @@ class BloodRequestService:
             .order_by(BloodRequest.request_group_id.desc(), BloodRequest.created_at)
         )
         requests = result.scalars().all()
-        
+
         # Group requests by group_id in memory
         groups_dict = {}
         for request in requests:
             group_id = request.request_group_id
             if group_id not in groups_dict:
                 groups_dict[group_id] = []
-            groups_dict[group_id].append(request)
-        
+            groups_dict[group_id].append(request)  # FIXED: This was missing proper indentation
+
         # Convert to group responses
         groups = []
         for group_id, group_requests in groups_dict.items():
             master_request = next((r for r in group_requests if r.is_master_request), group_requests[0])
             related_requests = [r for r in group_requests if not r.is_master_request]
-            
-            # Count statuses efficiently
-            status_counts = {'pending': 0, 'accepted': 0, 'rejected': 0, 'cancelled': 0}
+
+            # FIXED: Count statuses efficiently with correct field names
+            status_counts = {
+                'pending': 0, 
+                'approved': 0,    # Changed from 'accepted'
+                'rejected': 0, 
+                'fulfilled': 0,   # Added missing field
+                'cancelled': 0
+            }
+
+            unique_facilities = set()
+
             for r in group_requests:
-                if r.request_status.value in status_counts:
-                    status_counts[r.request_status.value] += 1
-            
+                # Get status value properly
+                status = r.request_status.value.lower() if hasattr(r.request_status, 'value') else str(r.request_status).lower()
+
+                # Count statuses (handle mapping if needed)
+                if status == 'pending':
+                    status_counts['pending'] += 1
+                elif status in ['approved', 'accepted']:  # Handle both possibilities
+                    status_counts['approved'] += 1
+                elif status == 'rejected':
+                    status_counts['rejected'] += 1
+                elif status == 'fulfilled':
+                    status_counts['fulfilled'] += 1
+                elif status == 'cancelled':
+                    status_counts['cancelled'] += 1
+
+                # Track unique facilities
+                unique_facilities.add(r.facility_id)
+
+            # Convert ORM objects to response models
+            master_request_response = BloodRequestResponse.from_orm(master_request)
+            related_requests_response = [BloodRequestResponse.from_orm(r) for r in related_requests]
+
             group_response = BloodRequestGroupResponse(
                 request_group_id=group_id,
                 blood_type=master_request.blood_type,
                 blood_product=master_request.blood_product,
-                quantity_requested=master_request.quantity_requested,
+                quantity_requested=sum(r.quantity_requested for r in group_requests),  # Sum all requests
                 notes=master_request.notes,
-                master_request=master_request,
-                related_requests=related_requests,
-                total_facilities=len(group_requests),
+                master_request=master_request_response,      # Convert to response model
+                related_requests=related_requests_response,   # Convert to response models
+                total_facilities=len(unique_facilities),      # Count unique facilities
                 pending_count=status_counts['pending'],
-                accepted_count=status_counts['accepted'],
+                approved_count=status_counts['approved'],     # Fixed field name
                 rejected_count=status_counts['rejected'],
+                fulfilled_count=status_counts['fulfilled'],   # Added missing field
                 cancelled_count=status_counts['cancelled'],
                 created_at=master_request.created_at,
                 updated_at=max(r.updated_at for r in group_requests)
             )
             groups.append(group_response)
-        
+
         return groups
 
     @performance_monitor
