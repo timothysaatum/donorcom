@@ -8,13 +8,16 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 import random
 import string
-from app.models.distribution import BloodDistribution, BloodDistributionStatus
+from app.models.distribution import BloodDistribution
 from app.models.inventory import BloodInventory
-from app.schemas.distribution import BloodDistributionCreate, BloodDistributionUpdate, DistributionStats
+from app.schemas.distribution import (
+    BloodDistributionCreate, 
+    BloodDistributionUpdate, 
+    DistributionStats,
+    DistributionStatus
+)
 from app.models.tracking_model import TrackState
 from app.schemas.tracking_schema import TrackStateStatus
-
-
 
 
 def generate_tracking_number(length=12):
@@ -34,8 +37,8 @@ class BloodDistributionService:
         Create a new blood distribution record and update inventory  
         """  
         # Removed transaction context that caused the error
-        
-        # If blood_product_id is provided, verify it exists and belongs to this blood bank  
+
+        # If blood_product_id is provided, verify it exists and belongs to this blood bank
         if distribution_data.blood_product_id:  
             inventory_result = await self.db.execute(  
                 select(BloodInventory).where(  
@@ -46,26 +49,26 @@ class BloodDistributionService:
                 )  
             )  
             inventory_item = inventory_result.scalar_one_or_none()  
-              
+
             if not inventory_item:  
                 raise HTTPException(status_code=404, detail="Blood inventory item not found or does not belong to your blood bank")  
-              
-            # Check if there's enough quantity  
+
+            # Check if there's enough quantity
             if inventory_item.quantity < distribution_data.quantity:  
                 raise HTTPException(status_code=400, detail=f"Insufficient quantity available. Requested: {distribution_data.quantity}, Available: {inventory_item.quantity}")  
-              
-            # Update inventory quantity  
+
+            # Update inventory quantity
             inventory_item.quantity -= distribution_data.quantity  
-              
-            # Use blood product and type from inventory  
+
+            # Use blood product and type from inventory
             blood_product = inventory_item.blood_product  
             blood_type = inventory_item.blood_type  
         else:  
-            # Using the values provided in the request  
+            # Using the values provided in the request
             blood_product = distribution_data.blood_product  
             blood_type = distribution_data.blood_type  
-          
-        # Create distribution record  
+
+        # Create distribution record
         new_distribution = BloodDistribution(  
             blood_product_id=distribution_data.blood_product_id,  
             dispatched_from_id=blood_bank_id,  
@@ -78,19 +81,19 @@ class BloodDistributionService:
             notes=distribution_data.notes,  
             tracking_number=generate_tracking_number() 
         )  
-          
+
         self.db.add(new_distribution)  
-      
+
         # Let the caller handle the commit if needed
         await self.db.flush()  
         await self.db.refresh(new_distribution)  
-          
-        # Load relationships  
-        await self.db.refresh(new_distribution, attribute_names=["dispatched_from", "dispatched_to", "created_by", "inventory_item"])  
 
+        # Load relationships
+        await self.db.refresh(new_distribution, attribute_names=["dispatched_from", "dispatched_to", "created_by", "inventory_item"])  
 
         track_state = TrackState(
             blood_distribution_id=new_distribution.id,
+            blood_request_id=new_distribution.blood_product_id,
             status=TrackStateStatus.pending_receive,
             location=new_distribution.dispatched_from.blood_bank_name,
             notes="Distribution created, awaiting dispatch",
@@ -131,29 +134,32 @@ class BloodDistributionService:
         # Save the old status before any changes
         old_status = distribution.status
 
-        # Special handling for status changes  
+        # Special handling for status changes
         if 'status' in update_dict:  
             new_status = update_dict['status']  
 
-            # Auto-update date_dispatched when status changes to in_transit  
-            if new_status == BloodDistributionStatus.in_transit and old_status == BloodDistributionStatus.pending:  
+            # Auto-update date_dispatched when status changes to in_transit
+            if (
+                new_status == DistributionStatus.in_transit
+                and old_status == DistributionStatus.pending
+            ):
                 distribution.date_dispatched = datetime.now()  
 
-            # Auto-update date_delivered when status changes to delivered  
-            if new_status == BloodDistributionStatus.delivered and old_status != BloodDistributionStatus.delivered:  
+            # Auto-update date_delivered when status changes to delivered
+            if new_status == DistributionStatus.delivered and old_status != DistributionStatus.delivered:
                 distribution.date_delivered = datetime.now()  
-                  
-            # Handle returns - add back to inventory if marked as returned  
-            if new_status == BloodDistributionStatus.returned and distribution.blood_product_id:  
-                inventory_result = await self.db.execute(  
+
+            # Handle returns - add back to inventory if marked as returned
+            if new_status == DistributionStatus.returned and distribution.blood_product_id:
+                inventory_result = await self.db.execute(
                     select(BloodInventory).where(BloodInventory.id == distribution.blood_product_id)  
                 )  
                 inventory_item = inventory_result.scalar_one_or_none()  
-                  
+
                 if inventory_item:  
                     inventory_item.quantity += distribution.quantity  
                 else:  
-                    # Create a new inventory entry if the original was deleted  
+                    # Create a new inventory entry if the original was deleted
                     new_inventory = BloodInventory(  
                         blood_product=distribution.blood_product,  
                         blood_type=distribution.blood_type,  
@@ -164,12 +170,12 @@ class BloodDistributionService:
                         expiry_date=(datetime.now() + timedelta(days=30)).date()  
                     )  
                     self.db.add(new_inventory)  
-          
-        # Update all fields  
+
+        # Update all fields
         for field, value in update_dict.items():  
             setattr(distribution, field, value)  
 
-        # await self.db.commit()  
+        # await self.db.commit()
         # await self.db.refresh(distribution)
 
         status_mapping = {
@@ -183,7 +189,7 @@ class BloodDistributionService:
         track_state = None
         if old_status != distribution.status:
             mapped_status = status_mapping.get(distribution.status.value, TrackStateStatus.pending_receive)
-            
+
             # Choose location based on status
             if mapped_status in [TrackStateStatus.pending_receive, TrackStateStatus.dispatched]:
                 location = distribution.dispatched_from.blood_bank_name if distribution.dispatched_from else None
@@ -192,6 +198,7 @@ class BloodDistributionService:
 
             track_state = TrackState(
                 blood_distribution_id=distribution.id,
+                blood_request_id=distribution.blood_product_id,
                 status=mapped_status,
                 location=location,
                 notes=f"Distribution status changed from {old_status.value} to {distribution.status.value}",
@@ -210,28 +217,28 @@ class BloodDistributionService:
         distribution = await self.get_distribution(distribution_id)  
         if not distribution:  
             raise HTTPException(status_code=404, detail="Distribution not found")  
-          
-        # Only allow deletion of pending distributions  
-        if distribution.status != BloodDistributionStatus.pending:  
+
+        # Only allow deletion of pending distributions
+        if distribution.status != DistributionStatus.pending:  
             raise HTTPException(  
                 status_code=400,   
                 detail=f"Cannot delete distribution with status: {distribution.status.value}. Only pending distributions can be deleted."  
             )  
 
-        # If linked to inventory, restore the quantity  
+        # If linked to inventory, restore the quantity
         if distribution.blood_product_id:  
             inventory_result = await self.db.execute(  
                 select(BloodInventory).where(BloodInventory.id == distribution.blood_product_id)  
             )  
             inventory_item = inventory_result.scalar_one_or_none()  
-              
+
             if inventory_item:  
                 inventory_item.quantity += distribution.quantity  
-          
+
         await self.db.delete(distribution)  
         await self.db.commit()  
         return True  
-          
+
     async def get_all_distributions(self) -> List[BloodDistribution]:  
         """  
         Get all distributions with their relationships  
@@ -264,7 +271,7 @@ class BloodDistributionService:
             .order_by(desc(BloodDistribution.created_at))  
         )  
         return result.scalars().all()  
-      
+
     async def get_distributions_by_facility(self, facility_id: UUID) -> List[BloodDistribution]:  
         """  
         Get all distributions to a specific facility  
@@ -281,8 +288,8 @@ class BloodDistributionService:
             .order_by(desc(BloodDistribution.created_at))  
         )  
         return result.scalars().all()  
-      
-    async def get_distributions_by_status(self, status: BloodDistributionStatus) -> List[BloodDistribution]:  
+
+    async def get_distributions_by_status(self, status: DistributionStatus) -> List[BloodDistribution]:  
         """  
         Get all distributions with a specific status  
         """  
@@ -298,13 +305,13 @@ class BloodDistributionService:
             .order_by(desc(BloodDistribution.created_at))  
         )  
         return result.scalars().all()  
-      
+
     async def get_recent_distributions(self, days: int = 7) -> List[BloodDistribution]:  
         """  
         Get distributions created in the past X days  
         """  
         date_threshold = datetime.now() - timedelta(days=days)  
-          
+
         result = await self.db.execute(  
             select(BloodDistribution)  
             .options(  
@@ -317,26 +324,26 @@ class BloodDistributionService:
             .order_by(desc(BloodDistribution.created_at))  
         )  
         return result.scalars().all()  
-      
+
     async def get_distribution_stats(self, blood_bank_id: Optional[UUID] = None) -> DistributionStats:  
         """  
         Get distribution statistics, optionally filtered by blood bank  
         """  
         query = select(  
             func.count().label("total"),  
-            func.sum(BloodDistribution.status == BloodDistributionStatus.pending).label("pending"),  
-            func.sum(BloodDistribution.status == BloodDistributionStatus.in_transit).label("in_transit"),  
-            func.sum(BloodDistribution.status == BloodDistributionStatus.delivered).label("delivered"),  
-            func.sum(BloodDistribution.status == BloodDistributionStatus.cancelled).label("cancelled"),  
-            func.sum(BloodDistribution.status == BloodDistributionStatus.returned).label("returned")  
+            func.sum(BloodDistribution.status == DistributionStatus.pending_receive).label("pending"),  
+            func.sum(BloodDistribution.status == DistributionStatus.in_transit).label("in_transit"),  
+            func.sum(BloodDistribution.status == DistributionStatus.delivered).label("delivered"),  
+            func.sum(BloodDistribution.status == DistributionStatus.cancelled).label("cancelled"),  
+            func.sum(BloodDistribution.status == DistributionStatus.returned).label("returned")  
         )  
-          
+
         if blood_bank_id:  
             query = query.where(BloodDistribution.dispatched_from_id == blood_bank_id)  
-              
+
         result = await self.db.execute(query)  
         stats = result.one()  
-          
+
         return DistributionStats(  
             total_distributions=stats.total or 0,  
             pending_count=stats.pending or 0,  

@@ -5,12 +5,13 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 from enum import Enum as PyEnum
+from app.schemas.distribution import DistributionStatus
 
 
-class BloodDistributionStatus(PyEnum):
-    pending_receive = "pending recieve"  # Initial status when distribution is created
-    in_transit = "in transit"            # When blood is being transported
-    returned = "returned"                # Added for cases where blood is returned to inventory
+# class DistributionStatus(PyEnum):
+#     pending_receive = "pending receive"  # Initial status when distribution is created
+#     in_transit = "in transit"            # When blood is being transported
+#     returned = "returned"                # Added for cases where blood is returned to inventory
 
 
 class BloodDistribution(Base):
@@ -27,12 +28,12 @@ class BloodDistribution(Base):
     blood_product: Mapped[str] = mapped_column(String(50), nullable=False)
     blood_type: Mapped[str] = mapped_column(String(10), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
-    status: Mapped[BloodDistributionStatus] = mapped_column(
-        Enum(BloodDistributionStatus, name="distribution_status"),
+    status: Mapped[DistributionStatus] = mapped_column(
+        Enum(DistributionStatus, name="distribution_status"),
         nullable=False,
-        default=BloodDistributionStatus.pending_receive,
+        default=DistributionStatus.pending_receive,
     )
-    
+
     date_dispatched: Mapped[Optional[DateTime]] = mapped_column(DateTime, nullable=True)
     date_delivered: Mapped[Optional[DateTime]] = mapped_column(DateTime, nullable=True)
     tracking_number: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
