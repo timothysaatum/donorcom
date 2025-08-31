@@ -5,7 +5,7 @@ from enum import Enum
 
 
 class DistributionStatus(str, Enum):
-    pending = "pending"
+    pending_receive = "pending receive"
     in_transit = "in transit"
     delivered = "delivered"
     cancelled = "cancelled"
