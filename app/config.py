@@ -14,9 +14,9 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = Field(default=None, env="DATABASE_URL")
-    DEV_DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://neondb_owner:npg_o1NpdZMfaP4T@ep-holy-butterfly-aex5taei-pooler.c-2.us-east-2.aws.neon.tech/neondb",
-    )
+    # DEV_DATABASE_URL: str = Field(
+    #     default="postgresql+asyncpg://neondb_owner:npg_o1NpdZMfaP4T@ep-holy-butterfly-aex5taei-pooler.c-2.us-east-2.aws.neon.tech/neondb",
+    # )
 
     # Security
     SECRET_KEY: str = Field(..., env="SECRET_KEY")

@@ -5,7 +5,6 @@ from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy import pool
 
 # Ensure the app directory is in the Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -27,7 +26,10 @@ fileConfig(config.config_file_name)
 target_metadata = Base.metadata
 
 # Get the database URL from the config file or env
-db_url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+db_url = os.getenv("DATABASE_URL")
+
+if db_url:
+    config.set_main_option("sqlalchemy.url", db_url)
 
 # Ensure async format for PostgreSQL
 if db_url and db_url.startswith("postgresql://"):
