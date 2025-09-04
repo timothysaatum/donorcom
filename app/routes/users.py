@@ -31,7 +31,6 @@ router = APIRouter(
 )
 
 
-
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def create_user(
     user_data: UserCreate, 
@@ -757,7 +756,7 @@ async def create_staff_user(
     start_time = time.time()
     current_user_id = str(current_user.id)
     client_ip = get_client_ip(request)
-    
+
     logger.info(
         "Staff creation started",
         extra={
@@ -768,7 +767,7 @@ async def create_staff_user(
             "client_ip": client_ip
         }
     )
-    
+
     try:
         # Get current user roles
         current_user_roles = [role.name for role in current_user.roles] if current_user.roles else []
@@ -785,7 +784,7 @@ async def create_staff_user(
                 user_id=current_user_id,
                 ip_address=client_ip
             )
-            
+
             logger.warning(
                 "Staff creation denied - lab manager cannot create another lab manager",
                 extra={
@@ -795,7 +794,7 @@ async def create_staff_user(
                     "reason": "role_restriction"
                 }
             )
-            
+
             raise HTTPException(
                 status_code=400, 
                 detail="You can only assign staff to your lab."
@@ -812,7 +811,7 @@ async def create_staff_user(
                 user_id=current_user_id,
                 ip_address=client_ip
             )
-            
+
             logger.warning(
                 "Staff creation denied - no facility assigned",
                 extra={
@@ -821,7 +820,7 @@ async def create_staff_user(
                     "reason": "no_facility_assigned"
                 }
             )
-            
+
             raise HTTPException(
                 status_code=400, 
                 detail="You are not assigned to any facility."
@@ -837,10 +836,10 @@ async def create_staff_user(
 
         # Refresh relationships
         await db.refresh(created_user, ["roles", "facility"])
-        
+
         # Calculate duration
         duration_ms = (time.time() - start_time) * 1000
-        
+
         # Log successful creation
         log_security_event(
             event_type="staff_user_created",
@@ -854,7 +853,7 @@ async def create_staff_user(
             user_id=current_user_id,
             ip_address=client_ip
         )
-        
+
         log_audit_event(
             action="create",
             resource_type="staff_user",
@@ -868,7 +867,7 @@ async def create_staff_user(
             },
             user_id=current_user_id
         )
-        
+
         logger.info(
             "Staff creation successful",
             extra={
@@ -881,28 +880,28 @@ async def create_staff_user(
                 "duration_ms": duration_ms
             }
         )
-        
+
         # Log performance metric for slow operations
         if duration_ms > 3000:  # More than 3 seconds
             log_performance_metric(
                 operation="staff_user_creation",
-                duration=duration_ms,
+                duration_seconds=duration_ms,
                 additional_metrics={
                     "slow_operation": True,
                     "email_verification_sent": True,
-                    "facility_assignment": True
-                }
+                    "facility_assignment": True,
+                },
             )
 
         return UserResponse.model_validate(created_user, from_attributes=True)
-        
+
     except HTTPException:
         # Re-raise HTTP exceptions (already logged above)
         raise
     except Exception as e:
         # Log unexpected errors
         duration_ms = (time.time() - start_time) * 1000
-        
+
         logger.error(
             "Staff creation failed due to unexpected error",
             extra={
@@ -914,7 +913,7 @@ async def create_staff_user(
             },
             exc_info=True
         )
-        
+
         log_security_event(
             event_type="staff_creation_error",
             details={
@@ -926,7 +925,7 @@ async def create_staff_user(
             user_id=current_user_id,
             ip_address=client_ip
         )
-        
+
         raise HTTPException(status_code=500, detail="Staff creation failed")
 
 
@@ -973,7 +972,7 @@ async def get_all_staff_users(
         if duration_ms > 500:  # More than 500ms
             log_performance_metric(
                 operation="get_staff_users",
-                duration=duration_ms,
+                duration_seconds=duration_ms,
                 additional_metrics={
                     "slow_query": True,
                     "result_count": len(staff_users),
