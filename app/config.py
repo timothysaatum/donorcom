@@ -12,9 +12,12 @@ class Settings(BaseSettings):
 
     # Environment
     ENVIRONMENT: str = Field("development", env="ENVIRONMENT")
-
+    DEBUG: bool = Field(default=True, env="DEBUG")
     # Database
     DATABASE_URL: str = Field(default=None, env="DATABASE_URL")
+    DATABASE_POOL_SIZE: int = Field(default=10, env="DATABASE_POOL_SIZE")
+    DATABASE_MAX_OVERFLOW: int = Field(default=20, env="DATABASE_MAX_OVERFLOW")
+    DATABASE_POOL_TIMEOUT: int = Field(default=30, env="DATABASE_POOL_TIMEOUT")
     # DEV_DATABASE_URL: str = Field(
     #     default="postgresql+asyncpg://neondb_owner:npg_o1NpdZMfaP4T@ep-holy-butterfly-aex5taei-pooler.c-2.us-east-2.aws.neon.tech/neondb",
     # )
