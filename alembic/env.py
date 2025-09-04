@@ -3,9 +3,11 @@ import os
 import sys
 from logging.config import fileConfig
 
+# from django.conf import settings
+
 from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
-
+from app.config import settings
 # Ensure the app directory is in the Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -26,7 +28,7 @@ fileConfig(config.config_file_name)
 target_metadata = Base.metadata
 
 # Get the database URL from the config file or env
-db_url = os.getenv("DATABASE_URL")
+db_url = os.getenv("DATABASE_URL") or settings.DATABASE_URL
 
 if db_url:
     config.set_main_option("sqlalchemy.url", db_url)
