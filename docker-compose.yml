@@ -1,0 +1,26 @@
+services:
+  app:
+    build: .
+    container_name: donorcom_app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - db
+    command: ["./entrypoint.sh"]
+
+  db:
+    image: postgres:17
+    container_name: donorcom_db
+    environment:
+      POSTGRES_USER: neondb_owner
+      POSTGRES_PASSWORD: npg_o1NpdZMfaP4T
+      POSTGRES_DB: neondb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

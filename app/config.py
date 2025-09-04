@@ -1,6 +1,7 @@
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 class Settings(BaseSettings):
     # Application Config
     PROJECT_NAME: str = "DonorCom API"
@@ -14,8 +15,10 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = Field(default=None, env="DATABASE_URL")
-    DEV_DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./db.sqlite3")
-
+    # DEV_DATABASE_URL: str = Field(
+    #     default="postgresql+asyncpg://neondb_owner:npg_o1NpdZMfaP4T@ep-holy-butterfly-aex5taei-pooler.c-2.us-east-2.aws.neon.tech/neondb",
+    # )
+    
     # Security
     SECRET_KEY: str = Field(..., env="SECRET_KEY")
     ALGORITHM: str = Field(..., env="ALGORITHM")
@@ -28,7 +31,6 @@ class Settings(BaseSettings):
             # Development origins
             "http://localhost:3000",
             "http://localhost",
-
             # Production frontend origins
             "https://hemolync.vercel.app",
             "https://hemolync.donorcom.org",
@@ -38,10 +40,7 @@ class Settings(BaseSettings):
 
     # Pydantic v2 config
     model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=True,
-        extra="ignore"
+        env_file=".env", env_file_encoding="utf-8", case_sensitive=True, extra="ignore"
     )
 
     def __init__(self, **values):
@@ -53,6 +52,7 @@ class Settings(BaseSettings):
         else:
             # Dev fallback to SQLite if no DATABASE_URL
             self.DATABASE_URL = self.DATABASE_URL or self.DEV_DATABASE_URL
+
 
 # Instantiate settings
 settings = Settings()
