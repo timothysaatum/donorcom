@@ -22,3 +22,15 @@ db.sqlite3
 # Alembic
 !alembic/versions/*.py
 alembic/versions/*.pyc
+# Elastic Beanstalk Files
+.elasticbeanstalk/*
+!.elasticbeanstalk/*.cfg.yml
+!.elasticbeanstalk/*.global.yml
+# AWS + EB configs
+aws/
+logs/
+# Dev credentials
+dev_credentials.txt
+
+# Editor + local environment
+.pytest_cache/

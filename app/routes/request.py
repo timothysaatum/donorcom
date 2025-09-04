@@ -1,4 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi import (
+    APIRouter, 
+    Depends, 
+    HTTPException, 
+    status, 
+    Query, 
+    Request
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from typing import List, Optional
@@ -6,7 +13,6 @@ import time
 from app.schemas.inventory import PaginatedResponse
 from app.models.user import User
 from app.dependencies import get_db
-from app.utils.security import get_current_user
 from app.schemas.request import (
     BloodRequestCreate, 
     BloodRequestUpdate,
@@ -36,7 +42,11 @@ router = APIRouter(
 )
 
 
-@router.post("/", response_model=BloodRequestBulkCreateResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/",
+    response_model=BloodRequestBulkCreateResponse,
+    status_code=status.HTTP_201_CREATED
+)
 async def create_blood_request(
     request_data: BloodRequestCreate,
     request: Request,
@@ -47,7 +57,10 @@ async def create_blood_request(
         "blood.inventory.can_create"
     ))
 ):
-    """Create blood requests to multiple facilities with comprehensive logging"""
+    """
+    Create blood requests to multiple 
+    facilities with comprehensive logging
+    """
     start_time = time.time()
     current_user_id = str(current_user.id)
     client_ip = get_client_ip(request)
@@ -67,7 +80,10 @@ async def create_blood_request(
 
     try:
         service = BloodRequestService(db)
-        result = await service.create_bulk_request(request_data, requester_id=current_user.id)
+        result = await service.create_bulk_request(
+            request_data,
+            requester_id=current_user.id
+        )
 
         # Calculate duration
         duration_ms = (time.time() - start_time) * 1000
@@ -143,10 +159,16 @@ async def create_blood_request(
             ip_address=client_ip
         )
 
-        raise HTTPException(status_code=500, detail="Blood request creation failed")
+        raise HTTPException(
+            status_code=500, 
+            detail="Blood request creation failed"
+        )
 
 
-@router.get("/my-requests", response_model=List[BloodRequestResponse])
+@router.get(
+    "/my-requests", 
+    response_model=List[BloodRequestResponse]
+)
 async def list_my_requests(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -156,7 +178,9 @@ async def list_my_requests(
         "blood.inventory.can_view"
     ))
 ):
-    """List all individual requests made by the current user with logging"""
+    """
+    List all individual requests made by the current user.
+    """
     start_time = time.time()
     current_user_id = str(current_user.id)
     
@@ -229,7 +253,7 @@ async def list_facility_requests(
         "blood.inventory.can_view"
     ))
 ):
-    """List requests with filtering and pagination, including comprehensive logging"""
+    """List requests with filtering and pagination."""
     start_time = time.time()
     current_user_id = str(current_user.id)
     
@@ -317,7 +341,7 @@ async def list_my_request_groups(
         "blood.inventory.can_view"
     ))
 ):
-    """List request groups made by the current user with logging"""
+    """List request groups made by the current user."""
     start_time = time.time()
     current_user_id = str(current_user.id)
     
@@ -373,7 +397,7 @@ async def get_request_statistics(
         "laboratory.manage"
     ))
 ):
-    """Get request statistics for the current user with logging"""
+    """Get request statistics for the current user."""
     start_time = time.time()
     current_user_id = str(current_user.id)
     
@@ -441,7 +465,7 @@ async def get_request_group(
         "blood.inventory.can_view"
     ))
 ):
-    """Get detailed information about a request group with comprehensive logging"""
+    """Get detailed information about a request group."""
     start_time = time.time()
     current_user_id = str(current_user.id)
     group_id = str(request_group_id)
@@ -541,7 +565,7 @@ async def get_blood_request(
         "blood.inventory.can_view"
     ))
 ):
-    """Get blood request with comprehensive logging and authorization"""
+    """Get blood request with authorization"""
     start_time = time.time()
     current_user_id = str(current_user.id)
     req_id = str(request_id)
@@ -651,7 +675,7 @@ async def update_blood_request(
         "blood.inventory.can_update"
     ))
 ):
-    """Update a blood request with comprehensive logging"""
+    """Update a blood request"""
     start_time = time.time()
     current_user_id = str(current_user.id)
     req_id = str(request_id)
@@ -784,7 +808,7 @@ async def delete_blood_request(
         "blood.inventory.can_delete"
     ))
 ):
-    """Delete a blood request with comprehensive logging"""
+    """Delete a blood request"""
     start_time = time.time()
     current_user_id = str(current_user.id)
     req_id = str(request_id)
@@ -919,7 +943,7 @@ async def list_requests_by_status(
         "blood.inventory.can_view"
     ))
 ):
-    """List requests by status for the current user with logging"""
+    """List requests by status for the current user."""
     start_time = time.time()
     current_user_id = str(current_user.id)
     
@@ -1014,7 +1038,7 @@ async def list_facility_requests_by_id(
         "laboratory.manage"
     ))
 ):
-    """List all requests for a specific facility with logging"""
+    """List all requests for a specific facility."""
     start_time = time.time()
     current_user_id = str(current_user.id)
     fac_id = str(facility_id)
@@ -1089,7 +1113,7 @@ async def respond_to_request(
         "blood.inventory.can_update"
     ))
 ):
-    """Allow facility staff to respond to a blood request with comprehensive logging"""
+    """Allow facility staff to respond to a blood request"""
     start_time = time.time()
     current_user_id = str(current_user.id)
     req_id = str(request_id)
@@ -1228,5 +1252,5 @@ async def respond_to_request(
             user_id=current_user_id,
             ip_address=client_ip
         )
-        
+
         raise HTTPException(status_code=500, detail="Failed to respond to request")

@@ -1,0 +1,26 @@
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+*.env
+
+# Logs and databases
+*.log
+*.sqlite3
+
+# Git files
+.git/
+.gitignore
+
+# Docker files (optional)
+Dockerfile
+docker-compose.yml
+
+# OS files
+.DS_Store
+Thumbs.db

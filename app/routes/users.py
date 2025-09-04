@@ -59,7 +59,7 @@ async def create_user(
             log_security_event(
                 event_type="registration_denied",
                 details={
-                    "reason": "restricted_role",
+                    "reason": "requires admin",
                     "requested_role": user_data.role,
                     "email": user_data.email
                 },

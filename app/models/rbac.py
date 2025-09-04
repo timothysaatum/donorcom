@@ -43,23 +43,66 @@ class Permission(Base):
 
 # --- Optional per-facility scoping ---
 
+
 class UserRoleScope(Base):
     __tablename__ = "user_role_scopes"
-    role_id: Mapped[int] = Column(Integer, ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+
+    role_id: Mapped[int] = Column(
+        Integer,
+        ForeignKey("roles.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+
+    # This can remain String if it references facility IDs that are strings
+    # But if facilities.id is UUID, change this to PGUUID(as_uuid=True) as well
     facility_id: Mapped[Optional[str]] = Column(String(36), index=True, nullable=True)
-    user_id: Mapped[str] = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+
+    # Change from String(36) to UUID to match users.id
+    user_id: Mapped[uuid.UUID] = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+
 
 # --- Impersonation Sessions ---
 
+
 class ImpersonationSession(Base):
     __tablename__ = "impersonation_sessions"
-    id: Mapped[str] = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    moderator_id: Mapped[str] = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    target_user_id: Mapped[str] = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    reason: Mapped[str] = Column(String(255))
-    started_at: Mapped[dt.datetime] = Column(DateTime(timezone=True), default=dt.datetime.utcnow)
-    ended_at: Mapped[Optional[dt.datetime]] = Column(DateTime(timezone=True), nullable=True)
-    active: Mapped[bool] = Column(Boolean, default=True, index=True)
+
+    # Change from String(36) to UUID type to match users.id
+    id: Mapped[uuid.UUID] = Column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+
+    # Change foreign key columns from String(36) to UUID type
+    moderator_id: Mapped[Optional[uuid.UUID]] = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=True,
+    )
+
+    target_user_id: Mapped[Optional[uuid.UUID]] = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=True,
+    )
+
+    reason: Mapped[Optional[str]] = Column(String(255), nullable=True)
+    started_at: Mapped[Optional[dt.datetime]] = Column(
+        DateTime(timezone=True), default=dt.datetime.utcnow, nullable=True
+    )
+    ended_at: Mapped[Optional[dt.datetime]] = Column(
+        DateTime(timezone=True), nullable=True
+    )
+    active: Mapped[Optional[bool]] = Column(
+        Boolean, default=True, index=True, nullable=True
+    )
 
     __table_args__ = (
         Index("ix_impersonation_active_moderator", "active", "moderator_id"),

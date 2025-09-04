@@ -194,7 +194,7 @@ async def create_facility_with_blood_bank(
             data=data,
             facility_manager_id=current_user.id
         )
-        
+
         # Calculate duration
         duration_ms = (time.time() - start_time) * 1000
 
@@ -253,12 +253,12 @@ async def create_facility_with_blood_bank(
         if duration_ms > 3000:  # More than 3 seconds
             log_performance_metric(
                 operation="facility_with_blood_bank_creation",
-                duration=duration_ms,
+                duration_seconds=duration_ms / 1000,
                 additional_metrics={
                     "slow_operation": True,
                     "blood_bank_included": blood_bank_created,
-                    "facility_type": data.facility_name
-                }
+                    "facility_type": data.facility_name,
+                },
             )
 
         return result
@@ -269,7 +269,7 @@ async def create_facility_with_blood_bank(
     except Exception as e:
         # Log unexpected errors
         duration_ms = (time.time() - start_time) * 1000
-        
+
         logger.error(
             "Facility with blood bank creation failed due to unexpected error",
             extra={
@@ -281,7 +281,7 @@ async def create_facility_with_blood_bank(
             },
             exc_info=True
         )
-        
+
         log_security_event(
             event_type="facility_with_blood_bank_creation_error",
             details={
@@ -293,7 +293,7 @@ async def create_facility_with_blood_bank(
             user_id=current_user_id,
             ip_address=client_ip
         )
-        
+
         raise HTTPException(status_code=500, detail="Facility with blood bank creation failed")
 
 
@@ -365,7 +365,7 @@ async def get_facility_by_id(
         if duration_ms > 500:  # More than 500ms
             log_performance_metric(
                 operation="facility_retrieval",
-                duration=duration_ms,
+                duration_seconds=duration_ms / 1000,
                 additional_metrics={
                     "slow_query": True,
                     "facility_id": target_facility_id
@@ -432,7 +432,7 @@ async def get_all_facilities(
         if duration_ms > 1000:  # More than 1 second
             log_performance_metric(
                 operation="get_all_facilities",
-                duration=duration_ms,
+                duration_seconds=duration_ms / 1000,
                 additional_metrics={
                     "slow_query": True,
                     "result_count": len(facilities)
@@ -600,7 +600,7 @@ async def update_facility(
         if duration_ms > 1500:  # More than 1.5 seconds
             log_performance_metric(
                 operation="facility_update",
-                duration=duration_ms,
+                duration_seconds=duration_ms / 1000,
                 additional_metrics={
                     "slow_operation": True,
                     "facility_id": target_facility_id,
@@ -783,7 +783,7 @@ async def delete_facility(
         if duration_ms > 2000:  # More than 2 seconds
             log_performance_metric(
                 operation="facility_deletion",
-                duration=duration_ms,
+                duration_seconds=duration_ms / 1000,
                 additional_metrics={
                     "slow_operation": True,
                     "facility_id": target_facility_id
