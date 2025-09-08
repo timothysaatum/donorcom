@@ -22,32 +22,31 @@ from app.models.rbac import Role, Permission
 from app.middlewares.logging_middleware import LoggingMiddleware
 
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Lifespan context manager for FastAPI application startup and shutdown events.
     """
     # Startup
-    
+
     start_scheduler()
     start_periodic_task()
-    
+
     # Create database session for seeding roles and permissions
     try:
         async with async_session() as db:
             try:
                 await seed_roles_and_permissions(db)
-                
+
             except Exception as e:
                 await db.rollback()
-                
+
                 raise
     except Exception as e:
         raise
-    
+
     yield
-    
+
     # Shutdown (add any cleanup code here if needed)
     stop_scheduler()  # Gracefully stop the scheduler for refreshing dashboard metrics
     stop_periodic_task()  # Stop the reverse address task for computing gps coordinates
@@ -60,12 +59,12 @@ def create_application() -> FastAPI:  # Create the fastapi application
         version=settings.VERSION,
         docs_url=settings.DOCS_URL,
         redoc_url=None,
-        lifespan=lifespan  # Add the lifespan context manager
+        lifespan=lifespan,  # Add the lifespan context manager
     )
-    
+
     @app.middleware("http")
     async def https_redirect(request: Request, call_next):
-        # Check if request came via HTTP (Classic LB terminates HTTPS 
+        # Check if request came via HTTP (Classic LB terminates HTTPS
         # and forwards as HTTP)
         if request.headers.get("x-forwarded-proto") == "http":
             url = request.url.replace(scheme="https")
@@ -78,16 +77,22 @@ def create_application() -> FastAPI:  # Create the fastapi application
         allow_origins=settings.BACKEND_CORS_ORIGINS,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-        allow_headers=["Content-Type", "Authorization", "Accept", "X-Requested-With", "Origin"],
+        allow_headers=[
+            "Content-Type",
+            "Authorization",
+            "Accept",
+            "X-Requested-With",
+            "Origin",
+        ],
         expose_headers=["Content-Length", "Content-Type", "Set-Cookie"],
         max_age=600,  # Cache preflight requests for 10 minutes
     )
-    
+
     # Logging middleware
     app.add_middleware(
         LoggingMiddleware,
         # exclude_paths=["/", "/metrics", "/docs", "/redoc", "/openapi.json"]
-        )
+    )
 
     # Include API routes
     app.include_router(api_router, prefix=settings.API_PREFIX)
@@ -136,7 +141,7 @@ def create_application() -> FastAPI:  # Create the fastapi application
             f"{settings.API_PREFIX}/patients",
             f"{settings.API_PREFIX}/stats",
             f"{settings.API_PREFIX}/dashboard",
-            f"{settings.API_PREFIX}/notifications"
+            f"{settings.API_PREFIX}/notifications",
         ]
 
         for path_key, path_item in openapi_schema["paths"].items():
@@ -156,7 +161,7 @@ def create_application() -> FastAPI:  # Create the fastapi application
     @app.get("/")
     def read_root():
         return {"status": "ok"}
-    
+
     @app.get("/debug/roles")
     async def check_roles(db: AsyncSession = Depends(get_db)):
         """Debug endpoint to check if roles and permissions were created"""
@@ -166,19 +171,18 @@ def create_application() -> FastAPI:  # Create the fastapi application
                 select(Role).options(selectinload(Role.permissions))
             )
             roles = result.scalars().all()
-            
+
             roles_data = []
             for role in roles:
-                roles_data.append({
-                    "id": role.id,
-                    "name": role.name,
-                    "permissions": [perm.name for perm in role.permissions]
-                })
-            
-            return {
-                "total_roles": len(roles),
-                "roles": roles_data
-            }
+                roles_data.append(
+                    {
+                        "id": role.id,
+                        "name": role.name,
+                        "permissions": [perm.name for perm in role.permissions],
+                    }
+                )
+
+            return {"total_roles": len(roles), "roles": roles_data}
         except Exception as e:
             return {"error": str(e)}
 
@@ -188,20 +192,21 @@ def create_application() -> FastAPI:  # Create the fastapi application
         try:
             result = await db.execute(select(Permission))
             permissions = result.scalars().all()
-            
+
             return {
                 "total_permissions": len(permissions),
-                "permissions": [{"id": p.id, "name": p.name} for p in permissions]
+                "permissions": [{"id": p.id, "name": p.name} for p in permissions],
             }
         except Exception as e:
             return {"error": str(e)}
-    
+
     @app.options("/{full_path:path}")
     async def options_handler(full_path: str):
         """Handle OPTIONS requests - often needed for CORS preflight requests"""
         return {}
 
     return app
+
 
 # Create and expose the FastAPI app
 app = create_application()

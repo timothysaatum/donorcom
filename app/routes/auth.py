@@ -38,9 +38,9 @@ from app.utils.ip_address_finder import (
 
 # JWT and Token Configuration
 SECRET_KEY = os.getenv("SECRET_KEY")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 180
-REFRESH_TOKEN_EXPIRE_DAYS = 7
+ALGORITHM = os.getenv("ALGORITHM")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS"))
 
 # Environment detection
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")

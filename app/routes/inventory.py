@@ -241,7 +241,6 @@ async def create_blood_unit(
         raise HTTPException(status_code=500, detail="Blood unit creation failed")
 
 
-
 @router.post("/batch", response_model=BatchOperationResponse, status_code=status.HTTP_201_CREATED)
 async def batch_create_blood_units(
     batch_data: BloodInventoryBatchCreate,
@@ -255,14 +254,14 @@ async def batch_create_blood_units(
     ))
 ):
     """
-    Batch create multiple blood units for improved performance with comprehensive logging.
+    Batch create multiple blood units.
     Handles up to 1000 units per request with transaction safety.
     """
     start_time = time.time()
     user_id = str(current_user.id)
     client_ip = get_client_ip(request)
     units_count = len(batch_data.blood_units)
-    
+
     logger.info(
         "Batch blood unit creation started",
         extra={
@@ -272,10 +271,10 @@ async def batch_create_blood_units(
             "client_ip": client_ip
         }
     )
-    
+
     try:
         blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
-        
+
         if not blood_bank_id:
             log_security_event(
                 event_type="batch_blood_unit_creation_denied",
@@ -287,7 +286,7 @@ async def batch_create_blood_units(
                 user_id=user_id,
                 ip_address=client_ip
             )
-            
+
             logger.warning(
                 "Batch blood unit creation denied - no blood bank access",
                 extra={
@@ -297,24 +296,24 @@ async def batch_create_blood_units(
                     "reason": "no_blood_bank_access"
                 }
             )
-            
+
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You do not belong to any facility or blood bank. Please contact admin."
             )
-        
+
         blood_service = BloodInventoryService(db)
-        
+
         created_units = await blood_service.batch_create_blood_units(
             blood_units_data=batch_data.blood_units,
             blood_bank_id=blood_bank_id,
             added_by_id=current_user.id
         )
-        
+
         # Calculate duration
         duration_ms = (time.time() - start_time) * 1000
         created_count = len(created_units)
-        
+
         # Log successful batch creation
         log_security_event(
             event_type="batch_blood_units_created",
@@ -328,7 +327,7 @@ async def batch_create_blood_units(
             user_id=user_id,
             ip_address=client_ip
         )
-        
+
         log_audit_event(
             action="batch_create",
             resource_type="blood_inventory",
@@ -340,7 +339,7 @@ async def batch_create_blood_units(
             },
             user_id=user_id
         )
-        
+
         logger.info(
             "Batch blood unit creation successful",
             extra={
@@ -352,7 +351,7 @@ async def batch_create_blood_units(
                 "duration_ms": duration_ms
             }
         )
-        
+
         # Log performance metrics
         log_performance_metric(
             operation="batch_blood_unit_creation",
@@ -363,17 +362,17 @@ async def batch_create_blood_units(
                 "batch_efficiency": (created_count / units_count) * 100
             }
         )
-        
+
         return BatchOperationResponse(
             success=True,
             processed_count=created_count,
             created_ids=[unit.id for unit in created_units]
         )
-    
+
     except Exception as e:
         # Calculate duration for error case
         duration_ms = (time.time() - start_time) * 1000
-        
+
         logger.error(
             "Batch blood unit creation failed",
             extra={
@@ -385,7 +384,7 @@ async def batch_create_blood_units(
             },
             exc_info=True
         )
-        
+
         log_security_event(
             event_type="batch_blood_unit_creation_error",
             details={
@@ -397,65 +396,91 @@ async def batch_create_blood_units(
             user_id=user_id,
             ip_address=client_ip
         )
-        
+
         return BatchOperationResponse(
             success=False,
             processed_count=0,
             failed_count=units_count,
             errors=[str(e)]
         )
-        
-        
+
+
 @router.get("/facilities/search-stock", response_model=PaginatedFacilityResponse)
 async def get_facilities_with_available_blood(
     request: Request,
-    blood_type: Annotated[Optional[str], Query(description="Blood type to filter by (e.g., A+, B-). If not provided, returns all blood types.")] = None,
-    blood_product: Annotated[Optional[str], Query(description="Blood product to filter by (e.g., Whole Blood, Plasma). If not provided, returns all products.")] = None,
+    blood_type: Annotated[
+        Optional[str],
+        Query(
+            description="Blood type to filter by (e.g., A+, B-). If not provided, returns all blood types."
+        ),
+    ] = None,
+    blood_product: Annotated[
+        Optional[str],
+        Query(
+            description="Blood product to filter by (e.g., Whole Blood, Plasma). If not provided, returns all products."
+        ),
+    ] = None,
     pagination: PaginationParams = Depends(get_pagination_params),
-    db: AsyncSession = Depends(get_db)):
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_permission(
+            "any"
+        )
+    ),
+):
     """
-    Get paginated list of unique facilities that have available blood inventory with logging.
+    Get paginated list of unique facilities (excluding user's own facility) that have available blood inventory.
     If blood_type and blood_product are provided, filters by those criteria.
     If not provided, returns all facilities with any available blood inventory.
     Returns only facility ID and name for efficient response.
     """
     start_time = time.time()
     client_ip = get_client_ip(request)
-    
+    user_id = str(current_user.id)
+
     logger.info(
         "Facilities with blood stock search started",
         extra={
             "event_type": "facilities_blood_search_attempt",
+            "user_id": user_id,
             "blood_type": blood_type,
             "blood_product": blood_product,
             "page": pagination.page,
             "page_size": pagination.page_size,
-            "client_ip": client_ip
-        }
+            "client_ip": client_ip,
+        },
     )
-    
+
     try:
+        # Get user's blood bank ID to exclude their facility
+        user_blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
+
         blood_service = BloodInventoryService(db)
         result = await blood_service.get_facilities_with_available_blood(
             blood_type=blood_type,
             blood_product=blood_product,
-            pagination=pagination
+            pagination=pagination,
+            exclude_user_blood_bank_id=user_blood_bank_id,  # Pass user's blood bank ID to exclude
         )
-        
+
         # Calculate duration
         duration_ms = (time.time() - start_time) * 1000
-        
+
         logger.info(
             "Facilities with blood stock search successful",
             extra={
                 "event_type": "facilities_blood_search_success",
+                "user_id": user_id,
                 "blood_type": blood_type,
                 "blood_product": blood_product,
-                "facilities_found": len(result.items) if hasattr(result, 'items') else 0,
-                "duration_ms": duration_ms
-            }
+                "facilities_found": (
+                    len(result.items) if hasattr(result, "items") else 0
+                ),
+                "excluded_user_facility": user_blood_bank_id is not None,
+                "duration_ms": duration_ms,
+            },
         )
-        
+
         # Log performance metric for slow queries
         if duration_ms > 1000:  # More than 1 second
             log_performance_metric(
@@ -465,33 +490,34 @@ async def get_facilities_with_available_blood(
                     "slow_query": True,
                     "blood_type": blood_type,
                     "blood_product": blood_product,
-                    "page_size": pagination.page_size
-                }
+                    "page_size": pagination.page_size,
+                },
             )
-        
+
         return result
-        
+
     except HTTPException:
         raise
     except Exception as e:
         # Log unexpected errors
         duration_ms = (time.time() - start_time) * 1000
-        
+
         logger.error(
             "Facilities with blood stock search failed",
             extra={
                 "event_type": "facilities_blood_search_error",
+                "user_id": user_id,
                 "blood_type": blood_type,
                 "blood_product": blood_product,
                 "error": str(e),
-                "duration_ms": duration_ms
+                "duration_ms": duration_ms,
             },
-            exc_info=True
+            exc_info=True,
         )
-        
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Could not fetch facility data"
+            detail="Could not fetch facility data",
         )
 
 
@@ -1068,7 +1094,6 @@ async def facility_blood_inventory(
         raise HTTPException(status_code=500, detail="Failed to retrieve blood inventory")
 
 
-    
 @router.post("/advanced-search", response_model=PaginatedResponse[BloodInventoryDetailResponse])
 async def advanced_search_blood_units(
     search_params: BloodInventorySearchParams,
