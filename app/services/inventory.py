@@ -64,10 +64,12 @@ class BloodInventoryService:
         self,
         blood_type: Optional[str] = None,
         blood_product: Optional[str] = None,
-        pagination: PaginationParams = None
+        pagination: PaginationParams = None,
+        exclude_user_blood_bank_id: Optional[UUID] = None
     ) -> PaginatedResponse[FacilityWithBloodAvailability]:
         """
         Get paginated list of unique facilities with available blood inventory.
+        Excludes the user's own facility if exclude_user_blood_bank_id is provided.
         If blood_type and blood_product are provided, filters by those criteria.
         If not provided, returns all facilities with any available blood inventory.
         """
@@ -80,20 +82,24 @@ class BloodInventoryService:
             BloodInventory.quantity > 0,
             BloodInventory.expiry_date >= datetime.now().date()
         ]
-        
+    
         # Add optional filters
         if blood_type:
             base_conditions.append(BloodInventory.blood_type == blood_type)
-        
+    
         if blood_product:
             base_conditions.append(BloodInventory.blood_product == blood_product)
+    
+        # Exclude user's blood bank if provided
+        if exclude_user_blood_bank_id:
+            base_conditions.append(BloodBank.id != exclude_user_blood_bank_id)
 
         # Build base query for counting total items
         count_query = select(func.count(distinct(Facility.id)))\
             .select_from(Facility)\
             .join(BloodBank, Facility.id == BloodBank.facility_id)\
             .join(BloodInventory, BloodBank.id == BloodInventory.blood_bank_id)\
-            .where(*base_conditions)
+            .where(and_(*base_conditions))
 
         # Get total count
         total_result = await self.db.execute(count_query)
@@ -104,10 +110,10 @@ class BloodInventoryService:
             Facility.id.label("facility_id"),
             Facility.facility_name
         ).distinct()\
-         .select_from(Facility)\
-         .join(BloodBank, Facility.id == BloodBank.facility_id)\
-         .join(BloodInventory, BloodBank.id == BloodInventory.blood_bank_id)\
-         .where(*base_conditions)
+        .select_from(Facility)\
+        .join(BloodBank, Facility.id == BloodBank.facility_id)\
+        .join(BloodInventory, BloodBank.id == BloodInventory.blood_bank_id)\
+        .where(and_(*base_conditions))
 
         # Apply sorting
         if pagination.sort_by and hasattr(Facility, pagination.sort_by):
@@ -116,6 +122,7 @@ class BloodInventoryService:
                 sort_field.desc() if pagination.sort_order.lower() == "desc" 
                 else sort_field.asc()
             )
+        
         else:
             query = query.order_by(Facility.facility_name.asc())
 

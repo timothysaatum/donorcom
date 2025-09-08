@@ -15,7 +15,7 @@ DEFAULT_ROLES = {
         "impersonate.view_audit",
         "impersonate.facility",
     ],
-    "facility_administrator": ["facility.manage", "account.can_view_profile"],
+    "facility_administrator": ["facility.manage", "account.can_view_profile", "any"],
     "lab_manager": [
         "laboratory.can_update",
         "laboratory.can_view",
@@ -24,6 +24,7 @@ DEFAULT_ROLES = {
         "distribution.manage",
         "staff.manage",
         "account.can_view_profile",
+        "any",
     ],
     "staff": [
         "blood.inventory.manage",
@@ -37,6 +38,7 @@ DEFAULT_ROLES = {
         "blood.issue.can_view",
         "blood.issue.can_delete",
         "account.can_view_profile",
+        "any",
     ],
 }
 

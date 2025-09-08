@@ -465,7 +465,7 @@ async def update_user(
         )
     ),
 ):
-    """Update user account with comprehensive logging"""
+    """Update user account"""
     start_time = time.time()
     current_user_id = str(current_user.id)
     target_user_id = str(user_id)
@@ -752,7 +752,7 @@ async def create_staff_user(
         "staff.manage", "facility.manage", "laboratory.manage"
     )),
 ):
-    """Create staff user with comprehensive logging"""
+    """Create staff user"""
     start_time = time.time()
     current_user_id = str(current_user.id)
     client_ip = get_client_ip(request)
