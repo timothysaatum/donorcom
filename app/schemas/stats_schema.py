@@ -1,6 +1,6 @@
 from enum import Enum
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import Dict, List, Optional
 from datetime import date
 from uuid import UUID
 
@@ -68,3 +68,24 @@ class TransferTrendsResponse(BaseModel):
     days: int = Field(..., description="Number of days included in the trend")
     period_start: str = Field(..., description="Start date of the period")
     period_end: str = Field(..., description="End date of the period")
+
+
+class ChartDataPoint(BaseModel):
+    date: str  # ISO 8601 format
+    formattedDate: str  # Display format like "Sep 04"
+    whole_blood: int
+    red_blood_cells: int
+    platelets: int
+    fresh_frozen_plasma: int
+    cryoprecipitate: int
+    albumin: int
+
+class ChartMetadata(BaseModel):
+    totalRecords: int
+    dateRange: Dict[str, str]  # {"from": "ISO date", "to": "ISO date"}
+    bloodProducts: List[str]
+
+class InventoryChartResponse(BaseModel):
+    success: bool
+    data: List[ChartDataPoint]
+    meta: ChartMetadata

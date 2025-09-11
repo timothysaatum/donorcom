@@ -22,7 +22,9 @@ class User(Base):
     )
     first_name: Mapped[str] = mapped_column(String(100), nullable=False)
     last_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    email: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+    email: Mapped[str] = mapped_column(
+        String(100), unique=True, index=True, nullable=False
+    )
     password: Mapped[str] = mapped_column(String(255), nullable=False)
 
     phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
@@ -50,14 +52,20 @@ class User(Base):
 
     blood_bank = relationship("BloodBank", back_populates="manager_user", uselist=False)
     added_blood_units = relationship("BloodInventory", back_populates="added_by")
-    notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
-    refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")
+    notifications = relationship(
+        "Notification", back_populates="user", cascade="all, delete-orphan"
+    )
+    refresh_tokens = relationship(
+        "RefreshToken", back_populates="user", cascade="all, delete-orphan"
+    )
 
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
     is_suspended: Mapped[bool] = mapped_column(Boolean, default=False)
     verification_token: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failed_login_attempts: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False
+    )
     locked_until: Mapped[Optional[DateTime]] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
@@ -74,7 +82,9 @@ class User(Base):
 
     # --- RBAC Relationship ---
     roles = relationship("Role", secondary=user_roles, back_populates="users")
-    sessions = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
+    sessions = relationship(
+        "UserSession", back_populates="user", cascade="all, delete-orphan"
+    )
 
     # --- Methods ---
     def __str__(self) -> str:
@@ -87,9 +97,7 @@ class User(Base):
     def has_permission(self, perm_name: str) -> bool:
         """Check if user has a given permission"""
         return any(
-            perm.name == perm_name
-            for role in self.roles
-            for perm in role.permissions
+            perm.name == perm_name for role in self.roles for perm in role.permissions
         )
 
     def has_role(self, role_name: str) -> bool:
@@ -119,11 +127,15 @@ class User(Base):
             locked = locked.replace(tzinfo=timezone.utc)
         return datetime.now(timezone.utc) < locked
 
-    def increment_failed_attempts(self, max_attempts: int = 5, lockout_duration_minutes: int = 15):
+    def increment_failed_attempts(
+        self, max_attempts: int = 5, lockout_duration_minutes: int = 15
+    ):
         """Increment failed login attempts and lock account if threshold reached"""
         self.failed_login_attempts += 1
         if self.failed_login_attempts >= max_attempts:
-            self.locked_until = datetime.now(timezone.utc) + timedelta(minutes=lockout_duration_minutes)
+            self.locked_until = datetime.now(timezone.utc) + timedelta(
+                minutes=lockout_duration_minutes
+            )
 
     def reset_failed_attempts(self):
         """Reset failed login attempts and unlock account"""
@@ -179,10 +191,7 @@ class RefreshToken(Base):
 
     # --- Columns ---
     id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        index=True
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True
     )
 
     # Foreign key to users
@@ -190,7 +199,7 @@ class RefreshToken(Base):
         PGUUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True
+        index=True,
     )
 
     # Token fields
@@ -205,10 +214,13 @@ class RefreshToken(Base):
         TIMESTAMP(timezone=True), server_default=func.now()
     )
     updated_at: Mapped[DateTime] = mapped_column(
-        TIMESTAMP(timezone=True), 
-        server_default=func.now(), 
-        onupdate=func.now()
+        TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    absolute_expires_at: Mapped[DateTime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
+    usage_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    last_used_at: Mapped[DateTime] = mapped_column(DateTime, nullable=False)
 
     # Optional metadata for tracking
     device_info: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
@@ -219,6 +231,10 @@ class RefreshToken(Base):
 
     def __repr__(self):
         return f"<RefreshToken(id={self.id}, user_id={self.user_id}, expires_at={self.expires_at})>"
+
+    def is_absolutely_expired(self) -> bool:
+        """Check if refresh token has passed its absolute expiration"""
+        return datetime.now() > self.absolute_expires_at
 
     @property
     def is_expired(self) -> bool:
@@ -248,10 +264,7 @@ class UserSession(Base):
 
     # --- Columns ---
     id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True),
-        primary_key=True,
-        default=uuid.uuid4,
-        index=True
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True
     )
 
     # Foreign key to users
@@ -259,17 +272,25 @@ class UserSession(Base):
         PGUUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True
+        index=True,
     )
 
     # Session identification
-    session_token: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    session_token: Mapped[str] = mapped_column(
+        String(255), unique=True, index=True, nullable=False
+    )
 
     # Device and network information
-    device_fingerprint: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    device_fingerprint: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True, index=True
+    )
     user_agent: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
-    user_agent_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
-    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True, index=True)
+    user_agent_hash: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+    ip_address: Mapped[Optional[str]] = mapped_column(
+        String(45), nullable=True, index=True
+    )
 
     # Geographic and network info (optional)
     country: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
@@ -295,7 +316,9 @@ class UserSession(Base):
     )
 
     # Security tracking
-    login_method: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # password, 2fa, oauth
+    login_method: Mapped[Optional[str]] = mapped_column(
+        String(50), nullable=True
+    )  # password, 2fa, oauth
     risk_score: Mapped[int] = mapped_column(Integer, default=0)  # 0-100 risk score
     total_requests: Mapped[int] = mapped_column(Integer, default=0)
 
@@ -318,11 +341,7 @@ class UserSession(Base):
     @property
     def is_valid(self) -> bool:
         """Check if session is valid"""
-        return (
-            self.is_active and 
-            not self.is_expired and 
-            self.terminated_at is None
-        )
+        return self.is_active and not self.is_expired and self.terminated_at is None
 
     @property
     def duration_minutes(self) -> int:

@@ -1,5 +1,6 @@
 import time
 from app.models.tracking_model import TrackState
+from app.routes import request
 from app.schemas.tracking_schema import TrackStateStatus
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -584,15 +585,15 @@ class BloodRequestService:
                 request_group_id=group_id,
                 blood_type=master_request.blood_type,
                 blood_product=master_request.blood_product,
-                quantity_requested=sum(r.quantity_requested for r in group_requests),  # Sum all requests
+                quantity_requested=sum(r.quantity_requested for r in group_requests),
                 notes=master_request.notes,
-                master_request=master_request_response,      # Convert to response model
-                related_requests=related_requests_response,   # Convert to response models
-                total_facilities=len(unique_facilities),      # Count unique facilities
+                master_request=master_request_response,
+                related_requests=related_requests_response,
+                total_facilities=len(unique_facilities),
                 pending_count=status_counts['pending'],
-                approved_count=status_counts['approved'],     # Fixed field name
+                approved_count=status_counts['approved'],
                 rejected_count=status_counts['rejected'],
-                fulfilled_count=status_counts['fulfilled'],   # Added missing field
+                fulfilled_count=status_counts['fulfilled'],
                 cancelled_count=status_counts['cancelled'],
                 created_at=master_request.created_at,
                 updated_at=max(r.updated_at for r in group_requests)
@@ -613,7 +614,6 @@ class BloodRequestService:
     ) -> PaginatedResponse[BloodRequestResponse]:
         """List requests made by and/or received by facilities - HEAVILY OPTIMIZED"""
 
-        # OPTIMIZATION: Use selectinload for better performance
         user_result = await self.db.execute(
             select(User)
             .options(
@@ -734,8 +734,78 @@ class BloodRequestService:
             'total_request_groups': len(all_groups),
             'total_individual_requests': len(requests),
             'pending_groups': len(groups_by_status.get(RequestStatus.pending, set())),
-            'approved_groups': len(groups_by_status.get(RequestStatus.accepted, set())),  # Fixed: was 'approved'
-            'fulfilled_groups': len(groups_by_status.get(ProcessingStatus.completed, set())),  # Assuming completed means fulfilled
+            'approved_groups': len(groups_by_status.get(RequestStatus.accepted, set())),
+            'fulfilled_groups': len(groups_by_status.get(ProcessingStatus.completed, set())),
             'rejected_groups': len(groups_by_status.get(RequestStatus.rejected, set())),
             'cancelled_groups': len(groups_by_status.get(RequestStatus.cancelled, set()))
         }
+    
+    @performance_monitor
+    async def cancel_request(
+        self, 
+        request_id: UUID, 
+        cancellation_reason: Optional[str] = None,
+        user_id: Optional[UUID] = None
+    ) -> BloodRequest:
+        """Cancel a blood request - only allowed for pending requests"""
+    
+        # Get the request with all necessary relationships
+        request = await self.get_request(request_id)
+        if not request:
+            raise HTTPException(status_code=404, detail="Blood request not found")
+    
+        # Check if request can be cancelled (only pending requests)
+        if request.request_status != RequestStatus.pending:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot cancel request with status '{request.request_status.value}'. Only pending requests can be cancelled."
+            )
+    
+        # Verify ownership if user_id is provided
+        if user_id and request.requester_id != user_id:
+            raise HTTPException(
+                status_code=403, 
+                detail="Not authorized to cancel this request"
+            )
+    
+        old_status = request.request_status
+    
+        try:
+            # Update request status
+            request.request_status = RequestStatus.cancelled
+            request.cancellation_reason = cancellation_reason or "Cancelled by requester"
+            
+            # Commit the cancellation
+            await self.db.commit()
+            await self.db.refresh(request)
+            
+            # Create track state for cancellation
+            track_state = TrackState(
+                blood_request_id=request.id,
+                status=TrackStateStatus.cancelled,
+                location=request.facility.facility_name if request.facility else "Unknown Location",
+                notes=f"Request cancelled by requester. Reason: {request.cancellation_reason}",
+                created_by_id=request.requester_id
+            )
+            self.db.add(track_state)
+            await self.db.commit()
+            
+            # Send notification using the utility function
+            await notify(
+                self.db,
+                request.requester_id,
+                "Request Cancelled",
+                f"Your blood request for {request.blood_product} ({request.blood_type}) - {request.quantity_requested} units has been cancelled. Reason: {request.cancellation_reason}"
+            )
+            
+            logger.info(
+                f"Request {request_id} cancelled successfully by user {user_id}. "
+                f"Reason: {request.cancellation_reason}"
+            )
+            
+            return request
+            
+        except Exception as e:
+            await self.db.rollback()
+            logger.error(f"Failed to cancel request {request_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail="Failed to cancel request")

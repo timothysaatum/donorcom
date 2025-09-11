@@ -82,74 +82,134 @@ class BloodInventoryService:
             BloodInventory.quantity > 0,
             BloodInventory.expiry_date >= datetime.now().date()
         ]
-    
+        
         # Add optional filters
         if blood_type:
             base_conditions.append(BloodInventory.blood_type == blood_type)
-    
+        
         if blood_product:
             base_conditions.append(BloodInventory.blood_product == blood_product)
-    
+        
         # Exclude user's blood bank if provided
         if exclude_user_blood_bank_id:
             base_conditions.append(BloodBank.id != exclude_user_blood_bank_id)
 
-        # Build base query for counting total items
+        # DEBUG: First, let's check if there are any blood inventory records at all
+        debug_total_inventory = await self.db.execute(
+            select(func.count(BloodInventory.id))
+        )
+        total_inventory_count = debug_total_inventory.scalar()
+        print(f"DEBUG: Total blood inventory records: {total_inventory_count}")
+
+        # DEBUG: Check available (non-expired, quantity > 0) inventory
+        debug_available_inventory = await self.db.execute(
+            select(func.count(BloodInventory.id))
+            .where(
+                BloodInventory.quantity > 0,
+                BloodInventory.expiry_date >= datetime.now().date()
+            )
+        )
+        available_inventory_count = debug_available_inventory.scalar()
+        print(f"DEBUG: Available blood inventory records: {available_inventory_count}")
+
+        # DEBUG: Check facilities with blood banks
+        debug_facilities_with_banks = await self.db.execute(
+            select(func.count(distinct(Facility.id)))
+            .select_from(Facility)
+            .join(BloodBank, Facility.id == BloodBank.facility_id)
+        )
+        facilities_with_banks_count = debug_facilities_with_banks.scalar()
+        print(f"DEBUG: Facilities with blood banks: {facilities_with_banks_count}")
+
+        # DEBUG: Check the full join before filtering
+        debug_full_join = await self.db.execute(
+            select(func.count(distinct(Facility.id)))
+            .select_from(Facility)
+            .join(BloodBank, Facility.id == BloodBank.facility_id)
+            .join(BloodInventory, BloodBank.id == BloodInventory.blood_bank_id)
+            .where(
+                BloodInventory.quantity > 0,
+                BloodInventory.expiry_date >= datetime.now().date()
+            )
+        )
+        full_join_count = debug_full_join.scalar()
+        print(f"DEBUG: Facilities with available blood (before user exclusion): {full_join_count}")
+
+        # Build the actual count query
         count_query = select(func.count(distinct(Facility.id)))\
             .select_from(Facility)\
             .join(BloodBank, Facility.id == BloodBank.facility_id)\
             .join(BloodInventory, BloodBank.id == BloodInventory.blood_bank_id)\
-            .where(and_(*base_conditions))
+            .where(*base_conditions)
 
         # Get total count
         total_result = await self.db.execute(count_query)
         total_items = total_result.scalar()
+        print(f"DEBUG: Final filtered count: {total_items}")
+        print(f"DEBUG: User blood bank to exclude: {exclude_user_blood_bank_id}")
+        print(f"DEBUG: Blood type filter: {blood_type}")
+        print(f"DEBUG: Blood product filter: {blood_product}")
+
+        # If no items found, return early
+        if total_items == 0:
+            return PaginatedResponse(
+                items=[],
+                total_items=0,
+                total_pages=0,
+                current_page=pagination.page if pagination else 1,
+                page_size=pagination.page_size if pagination else 20,
+                has_next=False,
+                has_prev=False
+            )
 
         # Build main query with pagination
         query = select(
             Facility.id.label("facility_id"),
             Facility.facility_name
         ).distinct()\
-        .select_from(Facility)\
-        .join(BloodBank, Facility.id == BloodBank.facility_id)\
-        .join(BloodInventory, BloodBank.id == BloodInventory.blood_bank_id)\
-        .where(and_(*base_conditions))
+         .select_from(Facility)\
+         .join(BloodBank, Facility.id == BloodBank.facility_id)\
+         .join(BloodInventory, BloodBank.id == BloodInventory.blood_bank_id)\
+         .where(*base_conditions)
 
         # Apply sorting
-        if pagination.sort_by and hasattr(Facility, pagination.sort_by):
+        if pagination and pagination.sort_by and hasattr(Facility, pagination.sort_by):
             sort_field = getattr(Facility, pagination.sort_by)
             query = query.order_by(
                 sort_field.desc() if pagination.sort_order.lower() == "desc" 
                 else sort_field.asc()
             )
-        
         else:
             query = query.order_by(Facility.facility_name.asc())
 
         # Apply pagination
-        offset = (pagination.page - 1) * pagination.page_size
-        query = query.offset(offset).limit(pagination.page_size)
+        if pagination:
+            offset = (pagination.page - 1) * pagination.page_size
+            query = query.offset(offset).limit(pagination.page_size)
 
         # Execute query
         result = await self.db.execute(query)
         facilities = result.mappings().all()
+        print(f"DEBUG: Facilities returned from query: {len(facilities)}")
 
         # Calculate pagination metadata
-        total_pages = (total_items + pagination.page_size - 1) // pagination.page_size
-        has_next = pagination.page < total_pages
-        has_prev = pagination.page > 1
+        page_size = pagination.page_size if pagination else 20
+        current_page = pagination.page if pagination else 1
+        total_pages = (total_items + page_size - 1) // page_size
+        has_next = current_page < total_pages
+        has_prev = current_page > 1
 
         return PaginatedResponse(
             items=[FacilityWithBloodAvailability(**facility) for facility in facilities],
             total_items=total_items,
             total_pages=total_pages,
-            current_page=pagination.page,
-            page_size=pagination.page_size,
+            current_page=current_page,
+            page_size=page_size,
             has_next=has_next,
             has_prev=has_prev
         )
 
-    def _validate_blood_attributes(self, blood_type: Optional[str], blood_product: Optional[str]):
+    async def _validate_blood_attributes(self, blood_type: Optional[str], blood_product: Optional[str]):
         """Helper method to validate blood type and product when provided"""
         # Only validate if values are provided
         validation_data = {}
