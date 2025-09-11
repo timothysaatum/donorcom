@@ -1,4 +1,5 @@
 import ipaddress
+import uuid
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, HashingError, VerificationError
 from datetime import datetime, timedelta, timezone
@@ -45,7 +46,6 @@ REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS"))
 # Account lockout configuration
 MAX_LOGIN_ATTEMPTS = int(os.getenv("MAX_LOGIN_ATTEMPTS"))
 LOCKOUT_DURATION_MINUTES = int(os.getenv("ACCOUNT_LOCKOUT_DURATION_MINUTES"))
-
 
 
 class SessionManager:
@@ -498,7 +498,7 @@ class TokenManager:
         session_id: Optional[UUID] = None,
     ) -> str:
         """Create a JWT access token with optional session reference"""
-        
+
         to_encode = data.copy()
         expire = datetime.now(timezone.utc) + (
             expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -516,7 +516,7 @@ class TokenManager:
         user_id: UUID, device_info: str = None, ip_address: str = None
     ) -> str:
         """Create a refresh token with enhanced tracking"""
- 
+
         jti = str(uuid4())
         expires = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
 
@@ -537,153 +537,82 @@ class TokenManager:
     @staticmethod
     async def create_refresh_token_record(
         db: AsyncSession,
-        user_id: UUID,
+        user_id: uuid.UUID,
         token: str,
-        device_info: str = None,
-        ip_address: str = None,
-    ) -> RefreshToken:
-        """Create a refresh token database record with hashed token"""
-        try:
-            if not isinstance(user_id, UUID):
-                try:
-                    user_id = UUID(str(user_id))
-                except Exception:
-                    raise ValueError("user_id must be a UUID or UUID string")
+        device_info: str,
+        ip_address: str,
+    ):
+        """Create refresh token record with absolute expiration"""
+        from app.models.user import RefreshToken
 
-            token_hash = hashlib.sha256(token.encode()).hexdigest()
-            payload = TokenManager.decode_token(token)
-            expires_at = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+        current_time = datetime.now(timezone.utc)
+        absolute_expiry = current_time + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+        regular_expiry = current_time + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        refresh_token_record = RefreshToken(
+            user_id=user_id,
+            token_hash=token_hash,
+            device_info=device_info,
+            ip_address=ip_address,
+            expires_at=regular_expiry,
+            absolute_expires_at=absolute_expiry,
+            last_used_at=current_time,
+            usage_count=1,
 
-            refresh_token_record = RefreshToken(
-                user_id=user_id,
-                token_hash=token_hash,
-                expires_at=expires_at,
-                device_info=device_info,
-                ip_address=ip_address,
+        )
+        refresh_token_record = RefreshToken(
+            user_id=user_id,
+            token_hash=token_hash,
+            device_info=device_info,
+            ip_address=ip_address,
+            expires_at=regular_expiry,
+            absolute_expires_at=absolute_expiry,
+            last_used_at=current_time,
+            usage_count=1,
+            revoked=False,
+        )
+
+        db.add(refresh_token_record)
+        await db.commit()
+        await db.refresh(refresh_token_record)
+
+        return refresh_token_record
+
+    @staticmethod
+    async def validate_refresh_token(db: AsyncSession, token: str):
+        """Validate refresh token with absolute expiration check"""
+        from app.models.user import RefreshToken
+        from sqlalchemy.orm import selectinload
+
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+        result = await db.execute(
+            select(RefreshToken)
+            .options(selectinload(RefreshToken.user))
+            .where(
+                RefreshToken.token_hash == token_hash,
+                RefreshToken.revoked == False
             )
+        )
 
-            db.add(refresh_token_record)
+        return result.scalar_one_or_none()
+
+
+    @staticmethod
+    async def revoke_refresh_token(db: AsyncSession, token_id: uuid.UUID):
+        """Revoke a refresh token by ID"""
+        from app.models.user import RefreshToken
+
+        result = await db.execute(
+            select(RefreshToken).where(RefreshToken.id == token_id)
+        )
+
+        token_record = result.scalar_one_or_none()
+        if token_record:
+            token_record.revoke()
             await db.commit()
-            await db.refresh(refresh_token_record)
-
-            logger.info(
-                "Refresh token record created",
-                extra={
-                    "event_type": "refresh_token_created",
-                    "user_id": str(user_id),
-                    "token_id": str(refresh_token_record.id),
-                    "expires_at": expires_at.isoformat(),
-                },
-            )
-
-            return refresh_token_record
-
-        except Exception as e:
-            logger.error(
-                "Failed to create refresh token record",
-                extra={
-                    "event_type": "refresh_token_creation_failed",
-                    "user_id": str(user_id),
-                    "error": str(e),
-                },
-                exc_info=True,
-            )
-            await db.rollback()
-            raise
-
-    @staticmethod
-    async def validate_refresh_token(
-        db: AsyncSession, token: str
-    ) -> Optional[RefreshToken]:
-        """Validate refresh token against database records"""
-        try:
-            token_hash = hashlib.sha256(token.encode()).hexdigest()
-
-            result = await db.execute(
-                select(RefreshToken)
-                .options(selectinload(RefreshToken.user))
-                .where(RefreshToken.token_hash == token_hash)
-            )
-            refresh_token_record = result.scalar_one_or_none()
-
-            if not refresh_token_record:
-                logger.warning(
-                    "Refresh token validation failed - token not found",
-                    extra={
-                        "event_type": "refresh_token_not_found",
-                        "token_hash": token_hash[:16] + "...",
-                    },
-                )
-                return None
-
-            if not refresh_token_record.is_valid:
-                logger.warning(
-                    "Refresh token validation failed - token invalid",
-                    extra={
-                        "event_type": "refresh_token_invalid",
-                        "token_id": str(refresh_token_record.id),
-                        "expired": refresh_token_record.is_expired,
-                        "revoked": refresh_token_record.revoked,
-                    },
-                )
-                return None
-
-            logger.info(
-                "Refresh token validation successful",
-                extra={
-                    "event_type": "refresh_token_validated",
-                    "token_id": str(refresh_token_record.id),
-                    "user_id": str(refresh_token_record.user_id),
-                },
-            )
-
-            return refresh_token_record
-
-        except Exception as e:
-            logger.error(
-                "Refresh token validation error",
-                extra={"event_type": "refresh_token_validation_error", "error": str(e)},
-                exc_info=True,
-            )
-            return None
-
-    @staticmethod
-    async def revoke_refresh_token(db: AsyncSession, token_id: UUID) -> bool:
-        """Revoke a specific refresh token"""
-        try:
-            result = await db.execute(
-                select(RefreshToken).where(RefreshToken.id == token_id)
-            )
-            refresh_token = result.scalar_one_or_none()
-
-            if refresh_token:
-                refresh_token.revoke()
-                await db.commit()
-
-                logger.info(
-                    "Refresh token revoked",
-                    extra={
-                        "event_type": "refresh_token_revoked",
-                        "token_id": str(token_id),
-                        "user_id": str(refresh_token.user_id),
-                    },
-                )
-                return True
-
-            return False
-
-        except Exception as e:
-            logger.error(
-                "Failed to revoke refresh token",
-                extra={
-                    "event_type": "refresh_token_revoke_failed",
-                    "token_id": str(token_id),
-                    "error": str(e),
-                },
-                exc_info=True,
-            )
-            await db.rollback()
-            return False
+            return True
+        return False
 
 
 def get_password_hash(password: str) -> str:

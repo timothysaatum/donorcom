@@ -1254,3 +1254,199 @@ async def respond_to_request(
         )
 
         raise HTTPException(status_code=500, detail="Failed to respond to request")
+
+
+@router.patch("/{request_id}/cancel", response_model=BloodRequestResponse)
+async def cancel_blood_request(
+    request_id: UUID,
+    request: Request,
+    cancellation_reason: Optional[str] = Query(None, description="Reason for cancelling the request"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_permission(
+        "facility.manage",
+        "laboratory.manage",
+        "blood.inventory.can_update"
+    ))
+):
+    """Cancel a blood request - only pending requests can be cancelled"""
+    start_time = time.time()
+    current_user_id = str(current_user.id)
+    req_id = str(request_id)
+    client_ip = get_client_ip(request)
+    
+    logger.info(
+        "Blood request cancellation started",
+        extra={
+            "event_type": "blood_request_cancellation_attempt",
+            "current_user_id": current_user_id,
+            "request_id": req_id,
+            "cancellation_reason": cancellation_reason
+        }
+    )
+    
+    try:
+        service = BloodRequestService(db)
+        
+        # Get the request first to verify ownership and status
+        blood_request = await service.get_request(request_id)
+        if not blood_request:
+            logger.warning(
+                "Blood request cancellation failed - request not found",
+                extra={
+                    "event_type": "blood_request_cancellation_failed",
+                    "current_user_id": current_user_id,
+                    "request_id": req_id,
+                    "reason": "not_found"
+                }
+            )
+            raise HTTPException(status_code=404, detail="Request not found")
+        
+        # Verify ownership
+        if blood_request.requester_id != current_user.id:
+            log_security_event(
+                event_type="unauthorized_blood_request_cancellation",
+                details={
+                    "reason": "not_owner",
+                    "request_id": req_id,
+                    "actual_owner": str(blood_request.requester_id)
+                },
+                user_id=current_user_id,
+                ip_address=client_ip
+            )
+            
+            logger.warning(
+                "Blood request cancellation denied - not authorized",
+                extra={
+                    "event_type": "blood_request_cancellation_denied",
+                    "current_user_id": current_user_id,
+                    "request_id": req_id,
+                    "reason": "not_owner"
+                }
+            )
+            
+            raise HTTPException(status_code=403, detail="Not authorized to cancel this request")
+        
+        # Check if request is in a cancellable state
+        if blood_request.request_status != RequestStatus.pending:
+            logger.warning(
+                "Blood request cancellation failed - invalid status",
+                extra={
+                    "event_type": "blood_request_cancellation_failed",
+                    "current_user_id": current_user_id,
+                    "request_id": req_id,
+                    "current_status": blood_request.request_status.value,
+                    "reason": "invalid_status"
+                }
+            )
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cannot cancel request with status '{blood_request.request_status.value}'. Only pending requests can be cancelled."
+            )
+        
+        # Store old values for audit
+        old_values = {
+            "request_status": blood_request.request_status.value,
+            "cancellation_reason": blood_request.cancellation_reason,
+            "blood_type": blood_request.blood_type,
+            "quantity": blood_request.quantity_requested,
+            "priority": blood_request.priority
+        }
+        
+        # Cancel the request
+        cancelled_request = await service.cancel_request(
+            request_id=request_id,
+            cancellation_reason=cancellation_reason,
+            user_id=current_user.id
+        )
+        
+        # Store new values for audit
+        new_values = {
+            "request_status": cancelled_request.request_status.value,
+            "cancellation_reason": cancelled_request.cancellation_reason,
+            "blood_type": cancelled_request.blood_type,
+            "quantity": cancelled_request.quantity_requested,
+            "priority": cancelled_request.priority
+        }
+        
+        duration_ms = (time.time() - start_time) * 1000
+        
+        # Log successful cancellation
+        log_audit_event(
+            action="cancel",
+            resource_type="blood_request",
+            resource_id=req_id,
+            old_values=old_values,
+            new_values=new_values,
+            user_id=current_user_id
+        )
+        
+        log_security_event(
+            event_type="blood_request_cancelled",
+            details={
+                "blood_type": cancelled_request.blood_type,
+                "quantity": cancelled_request.quantity_requested,
+                "cancellation_reason": cancelled_request.cancellation_reason,
+                "duration_ms": duration_ms
+            },
+            user_id=current_user_id,
+            ip_address=client_ip
+        )
+        
+        logger.info(
+            "Blood request cancellation successful",
+            extra={
+                "event_type": "blood_request_cancelled",
+                "current_user_id": current_user_id,
+                "request_id": req_id,
+                "blood_type": cancelled_request.blood_type,
+                "quantity": cancelled_request.quantity_requested,
+                "cancellation_reason": cancelled_request.cancellation_reason,
+                "duration_ms": duration_ms
+            }
+        )
+        
+        # Log performance metric for slow operations
+        if duration_ms > 2000:  # More than 2 seconds
+            log_performance_metric(
+                operation="cancel_blood_request",
+                duration_seconds=duration_ms / 1000,
+                additional_metrics={
+                    "slow_operation": True,
+                    "blood_type": cancelled_request.blood_type,
+                    "cancellation_reason": cancellation_reason
+                }
+            )
+        
+        # Return the cancelled request using the established pattern
+        return BloodRequestResponse.from_orm_with_facility_names(cancelled_request)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        duration_ms = (time.time() - start_time) * 1000
+        
+        logger.error(
+            "Blood request cancellation failed due to unexpected error",
+            extra={
+                "event_type": "blood_request_cancellation_error",
+                "current_user_id": current_user_id,
+                "request_id": req_id,
+                "error": str(e),
+                "duration_ms": duration_ms
+            },
+            exc_info=True
+        )
+        
+        log_security_event(
+            event_type="blood_request_cancellation_error",
+            details={
+                "reason": "unexpected_error",
+                "error": str(e),
+                "request_id": req_id,
+                "duration_ms": duration_ms
+            },
+            user_id=current_user_id,
+            ip_address=client_ip
+        )
+        
+        raise HTTPException(status_code=500, detail="Blood request cancellation failed")

@@ -2,12 +2,14 @@ from app.utils.permission_checker import require_permission
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from app.dependencies import get_db
 from app.schemas.stats_schema import (
     BloodProductType,
-    DashboardSummaryResponse, 
+    ChartMetadata,
+    DashboardSummaryResponse,
+    InventoryChartResponse, 
     MonthlyTransferStatsResponse,
     BloodProductBreakdownResponse,
     TransferTrendsResponse
@@ -514,7 +516,7 @@ async def transfer_trends(
     """
     import time
     start_time = time.time()
-    
+
     with LogContext(
         req_id=getattr(request.state, 'request_id', None) if request else None,
         usr_id=str(current_user.id),
@@ -529,10 +531,10 @@ async def transfer_trends(
                 "requested_days": days
             }
         )
-        
+
         try:
             facility_id = get_user_facility_id(current_user)
-            
+
             # Validate days parameter (already handled by Query validation, but log it)
             if days < 1 or days > 365:
                 logger.warning(
@@ -547,9 +549,9 @@ async def transfer_trends(
                     status_code=400,
                     detail="Days must be between 1 and 365"
                 )
-            
+
             stats_service = StatsService(db)
-            
+
             logger.debug(
                 "Fetching transfer trends data",
                 extra={
@@ -559,16 +561,16 @@ async def transfer_trends(
                     "days": days
                 }
             )
-            
+
             trends_data = await stats_service.get_transfer_trends(
                 facility_id=facility_id,
                 days=days
             )
-            
+
             # Calculate period dates
             end_date = date.today()
             start_date = end_date - timedelta(days=days)
-            
+
             # Log performance metric
             execution_time = time.time() - start_time
             log_performance_metric(
@@ -581,7 +583,7 @@ async def transfer_trends(
                     "trend_data_points": len(trends_data) if trends_data else 0
                 }
             )
-            
+
             logger.info(
                 "Transfer trends retrieved successfully",
                 extra={
@@ -595,7 +597,7 @@ async def transfer_trends(
                     "trend_data_points": len(trends_data) if trends_data else 0
                 }
             )
-            
+
             return TransferTrendsResponse(
                 data=trends_data,
                 facility_id=facility_id,
@@ -603,7 +605,7 @@ async def transfer_trends(
                 period_start=start_date.isoformat(),
                 period_end=end_date.isoformat()
             )
-            
+
         except HTTPException:
             raise
         except Exception as e:
@@ -620,3 +622,307 @@ async def transfer_trends(
                 exc_info=True
             )
             raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.get("/inventory-chart", response_model=InventoryChartResponse)
+async def inventory_chart(
+    from_param: Optional[str] = Query(
+        None, alias="from", description="Start date in ISO 8601 format"
+    ),
+    to: Optional[str] = Query(None, description="End date in ISO 8601 format"),
+    blood_products: Optional[str] = Query(
+        None,
+        description="Comma-separated list of blood product types to include",
+        example="whole_blood,red_blood_cells,platelets",
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_permission(
+            "facility.manage", "laboratory.manage", "blood.inventory.can_view"
+        )
+    ),
+    request: Request = None,
+):
+    """
+    Get blood product inventory data for dashboard chart visualization.
+
+    Parameters:
+    - from: Start date in ISO 8601 format (optional, defaults to 7 days ago)
+    - to: End date in ISO 8601 format (optional, defaults to today)
+    - blood_products: Comma-separated list of blood product types (optional, defaults to all)
+      Valid values: whole_blood, red_blood_cells, platelets, fresh_frozen_plasma, cryoprecipitate, albumin
+    """
+    import time
+
+    start_time = time.time()
+
+    with LogContext(
+        req_id=getattr(request.state, "request_id", None) if request else None,
+        usr_id=str(current_user.id),
+        sess_id=getattr(request.state, "session_id", None) if request else None,
+    ):
+        logger.info(
+            "Inventory chart request initiated",
+            extra={
+                "event_type": "inventory_chart_started",
+                "user_id": str(current_user.id),
+                "user_email": current_user.email,
+                "from_date": from_param,
+                "to_date": to,
+                "blood_products": blood_products,
+            },
+        )
+
+        try:
+            facility_id = get_user_facility_id(current_user)
+
+            # Parse and validate date parameters (existing code)
+            from_date = None
+            to_date = None
+
+            if from_param:
+                try:
+                    from_date = datetime.fromisoformat(
+                        from_param.replace("Z", "+00:00")
+                    )
+                except ValueError:
+                    logger.warning(
+                        "Invalid 'from' date format",
+                        extra={
+                            "event_type": "invalid_from_date",
+                            "user_id": str(current_user.id),
+                            "from_param": from_param,
+                        },
+                    )
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "success": False,
+                            "error": {
+                                "code": "INVALID_DATE_FORMAT",
+                                "message": "The 'from' date must be in ISO 8601 format",
+                                "details": {"from": from_param},
+                            },
+                        },
+                    )
+
+            if to:
+                try:
+                    to_date = datetime.fromisoformat(to.replace("Z", "+00:00"))
+                except ValueError:
+                    logger.warning(
+                        "Invalid 'to' date format",
+                        extra={
+                            "event_type": "invalid_to_date",
+                            "user_id": str(current_user.id),
+                            "to_param": to,
+                        },
+                    )
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "success": False,
+                            "error": {
+                                "code": "INVALID_DATE_FORMAT",
+                                "message": "The 'to' date must be in ISO 8601 format",
+                                "details": {"to": to},
+                            },
+                        },
+                    )
+
+            # Validate date range logic (existing code)
+            if from_date and to_date and from_date > to_date:
+                logger.warning(
+                    "Invalid date range - 'from' after 'to'",
+                    extra={
+                        "event_type": "invalid_date_range",
+                        "user_id": str(current_user.id),
+                        "from_date": from_param,
+                        "to_date": to,
+                    },
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "success": False,
+                        "error": {
+                            "code": "INVALID_DATE_RANGE",
+                            "message": "The 'from' date cannot be after the 'to' date",
+                            "details": {"from": from_param, "to": to},
+                        },
+                    },
+                )
+
+            # Check if date range is too large (existing code)
+            if from_date and to_date:
+                days_diff = (to_date - from_date).days
+                if days_diff > 365:
+                    logger.warning(
+                        "Date range too large",
+                        extra={
+                            "event_type": "date_range_too_large",
+                            "user_id": str(current_user.id),
+                            "days_diff": days_diff,
+                        },
+                    )
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "success": False,
+                            "error": {
+                                "code": "DATE_RANGE_TOO_LARGE",
+                                "message": "Date range cannot exceed 365 days",
+                                "details": {
+                                    "from": from_param,
+                                    "to": to,
+                                    "days_requested": days_diff,
+                                },
+                            },
+                        },
+                    )
+
+            # NEW: Parse and validate blood products parameter
+            all_blood_products = [
+                "whole_blood",
+                "red_blood_cells",
+                "platelets",
+                "fresh_frozen_plasma",
+                "cryoprecipitate",
+                "albumin",
+            ]
+
+            selected_blood_products = all_blood_products  # Default to all
+
+            if blood_products:
+                # Parse comma-separated blood products
+                requested_products = [
+                    p.strip() for p in blood_products.split(",") if p.strip()
+                ]
+
+                # Validate that all requested products are valid
+                invalid_products = [
+                    p for p in requested_products if p not in all_blood_products
+                ]
+                if invalid_products:
+                    logger.warning(
+                        "Invalid blood product types requested",
+                        extra={
+                            "event_type": "invalid_blood_products",
+                            "user_id": str(current_user.id),
+                            "invalid_products": invalid_products,
+                        },
+                    )
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "success": False,
+                            "error": {
+                                "code": "INVALID_BLOOD_PRODUCTS",
+                                "message": f"Invalid blood product types: {', '.join(invalid_products)}",
+                                "details": {
+                                    "invalid_products": invalid_products,
+                                    "valid_products": all_blood_products,
+                                },
+                            },
+                        },
+                    )
+
+                selected_blood_products = requested_products
+
+            stats_service = StatsService(db)
+
+            logger.debug(
+                "Fetching inventory chart data",
+                extra={
+                    "event_type": "inventory_chart_fetch",
+                    "facility_id": str(facility_id),
+                    "user_id": str(current_user.id),
+                    "from_date": from_date.isoformat() if from_date else None,
+                    "to_date": to_date.isoformat() if to_date else None,
+                    "selected_products": selected_blood_products,
+                },
+            )
+
+            # UPDATED: Pass selected blood products to the service
+            chart_data = await stats_service.get_inventory_chart_data(
+                facility_id=facility_id,
+                from_date=from_date,
+                to_date=to_date,
+                selected_blood_products=selected_blood_products,
+            )
+
+            # Set actual date range used
+            actual_from = (
+                from_date
+                if from_date
+                else (to_date or datetime.now()) - timedelta(days=7)
+            )
+            actual_to = to_date if to_date else datetime.now()
+
+            # Build response with selected products in meta
+            response = InventoryChartResponse(
+                success=True,
+                data=chart_data,
+                meta=ChartMetadata(
+                    totalRecords=len(chart_data),
+                    dateRange={
+                        "from": actual_from.isoformat() + "Z",
+                        "to": actual_to.isoformat() + "Z",
+                    },
+                    bloodProducts=selected_blood_products,
+                ),
+            )
+
+            # Log performance metric
+            execution_time = time.time() - start_time
+            log_performance_metric(
+                operation="inventory_chart",
+                duration_seconds=execution_time,
+                additional_metrics={
+                    "facility_id": str(facility_id),
+                    "user_id": str(current_user.id),
+                    "data_points": len(chart_data),
+                    "date_range_days": (actual_to - actual_from).days,
+                    "selected_products_count": len(selected_blood_products),
+                },
+            )
+
+            logger.info(
+                "Inventory chart data retrieved successfully",
+                extra={
+                    "event_type": "inventory_chart_success",
+                    "user_id": str(current_user.id),
+                    "facility_id": str(facility_id),
+                    "execution_time_seconds": round(execution_time, 4),
+                    "data_points": len(chart_data),
+                    "selected_products": selected_blood_products,
+                    "date_range": f"{actual_from.date()} to {actual_to.date()}",
+                },
+            )
+
+            return response
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            execution_time = time.time() - start_time
+            logger.error(
+                "Inventory chart retrieval failed",
+                extra={
+                    "event_type": "inventory_chart_failed",
+                    "user_id": str(current_user.id),
+                    "execution_time_seconds": round(execution_time, 4),
+                    "error": str(e),
+                },
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "success": False,
+                    "error": {
+                        "code": "INTERNAL_SERVER_ERROR",
+                        "message": f"Internal server error: {str(e)}",
+                    },
+                },
+            )
