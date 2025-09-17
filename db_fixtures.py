@@ -9,19 +9,20 @@ from app.utils.security import get_password_hash
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 from app.utils import supervisor
+from app.config import settings
 
 
-DATABASE_URL = "sqlite+aiosqlite:///./db.sqlite3"
+DATABASE_URL = settings.DATABASE_URL
+ENVIRONMENT = settings.ENVIRONMENT
 engine = create_async_engine(DATABASE_URL, echo=True)
 AsyncSessionLocal = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 
 blood_types = ["A+", "A-", "B+", "B-", "O+", "O-", "AB+", "AB-"]
 valid_products = [
-    'Whole Blood','whole blood','Red Blood Cells','red blood cells',
-    'Plasma','Platelets','platelets','Cryoprecipitate','cryoprecipitate',
-    'Fresh Frozen Plasma','fresh frozen plasma','Albumin','albumin',
-    'red cells','Red Cells'
+    'Whole Blood','Red Blood Cells',
+    'Plasma','Platelets','Cryoprecipitate',
+    'Fresh Frozen Plasma','Albumin'
 ]
 
 async def seed_db():
@@ -103,6 +104,10 @@ async def seed_db():
         await db.commit()
         print("Created 2 test users, 2 facilities, and 20 blood inventory items!")
         print("Dev credentials saved to dev_credentials.txt")
+if ENVIRONMENT == "development":
+    print("Running in development mode")
+    if __name__ == "__main__":
+        asyncio.run(seed_db())
 
-if __name__ == "__main__":
-    asyncio.run(seed_db())
+else:
+    print("Skipping DB seeding - not in development mode")

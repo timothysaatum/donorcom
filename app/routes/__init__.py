@@ -10,6 +10,7 @@ from .stats_routes import router as inventory_stats_route
 from .request import router as request_router
 from .notification import router as notification_router
 
+
 router = APIRouter()
 
 router.include_router(users_router)

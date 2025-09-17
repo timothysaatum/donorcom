@@ -8,18 +8,20 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
 from app.config import settings
+
 # Ensure the app directory is in the Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 # Import metadata from your Base
 from app.db.base import Base  # Your declarative Base
 from app.models import (
-    user, 
-    health_facility, 
-    blood_bank, 
+    user,
+    health_facility,
+    blood_bank,
     inventory,
     distribution,
-    TrackState
+    TrackState,
+    device,  # Import device models for security features
 )  # Ensure all models are imported here
 
 # Alembic Config
@@ -47,6 +49,7 @@ if db_url.startswith("postgresql+asyncpg://"):
         "command_timeout": 60,
     }
 
+
 async def run_async_migrations():
     """Run migrations in 'online' mode using async engine."""
     connectable = create_async_engine(
@@ -62,12 +65,13 @@ async def run_async_migrations():
     try:
         async with connectable.connect() as connection:
             async with connection.begin():
+
                 def do_migrations(sync_connection):
                     context.configure(
                         connection=sync_connection,
                         target_metadata=target_metadata,
                         compare_type=True,
-                        render_as_batch=True
+                        render_as_batch=True,
                     )
                     context.run_migrations()
 

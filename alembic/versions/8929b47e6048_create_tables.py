@@ -1,8 +1,8 @@
 """create tables
 
-Revision ID: 4fbd0ec79d0e
+Revision ID: 8929b47e6048
 Revises: 
-Create Date: 2025-09-10 09:49:27.564229
+Create Date: 2025-09-17 00:40:22.096374
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = '4fbd0ec79d0e'
+revision: str = '8929b47e6048'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -32,12 +32,11 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('facility_manager_id', sa.UUID(), nullable=True),
-    sa.ForeignKeyConstraint(['facility_manager_id'], ['users.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     with op.batch_alter_table('facilities', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_facilities_facility_email'), ['facility_email'], unique=True)
-        batch_op.create_index(batch_op.f('ix_facilities_facility_manager_id'), ['facility_manager_id'], unique=True)
+        batch_op.create_index(batch_op.f('ix_facilities_facility_manager_id'), ['facility_manager_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_facilities_id'), ['id'], unique=True)
 
     op.create_table('patients',
@@ -68,6 +67,23 @@ def upgrade() -> None:
     with op.batch_alter_table('roles', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_roles_name'), ['name'], unique=True)
 
+    op.create_table('dashboard_daily_summary',
+    sa.Column('date', sa.Date(), nullable=False),
+    sa.Column('total_requests', sa.Integer(), nullable=False),
+    sa.Column('total_transferred', sa.Integer(), nullable=False),
+    sa.Column('total_stock', sa.Integer(), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('facility_id', sa.UUID(), nullable=False),
+    sa.ForeignKeyConstraint(['facility_id'], ['facilities.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('date', 'facility_id')
+    )
+    op.create_table('role_permissions',
+    sa.Column('role_id', sa.Integer(), nullable=False),
+    sa.Column('permission_id', sa.Integer(), nullable=False),
+    sa.ForeignKeyConstraint(['permission_id'], ['permissions.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['role_id'], ['roles.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('role_id', 'permission_id')
+    )
     op.create_table('users',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('first_name', sa.String(length=100), nullable=False),
@@ -129,26 +145,20 @@ def upgrade() -> None:
     sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('requester_id', sa.UUID(), nullable=False),
     sa.Column('fulfilled_by_id', sa.UUID(), nullable=True),
-    sa.Column('facility_id', sa.UUID(), nullable=True),
+    sa.Column('facility_id', sa.UUID(), nullable=False, comment='Target/receiving facility for the request'),
+    sa.Column('source_facility_id', sa.UUID(), nullable=False, comment='Source/originating facility for the request'),
     sa.ForeignKeyConstraint(['facility_id'], ['facilities.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['fulfilled_by_id'], ['users.id'], ondelete='SET NULL'),
     sa.ForeignKeyConstraint(['requester_id'], ['users.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['source_facility_id'], ['facilities.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
     with op.batch_alter_table('blood_requests', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_blood_requests_facility_id'), ['facility_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_blood_requests_id'), ['id'], unique=False)
         batch_op.create_index(batch_op.f('ix_blood_requests_request_group_id'), ['request_group_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_blood_requests_source_facility_id'), ['source_facility_id'], unique=False)
 
-    op.create_table('dashboard_daily_summary',
-    sa.Column('date', sa.Date(), nullable=False),
-    sa.Column('total_requests', sa.Integer(), nullable=False),
-    sa.Column('total_transferred', sa.Integer(), nullable=False),
-    sa.Column('total_stock', sa.Integer(), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
-    sa.Column('facility_id', sa.UUID(), nullable=False),
-    sa.ForeignKeyConstraint(['facility_id'], ['facilities.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('date', 'facility_id')
-    )
     op.create_table('impersonation_sessions',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('moderator_id', sa.UUID(), nullable=True),
@@ -200,13 +210,6 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f('ix_refresh_tokens_token_hash'), ['token_hash'], unique=False)
         batch_op.create_index(batch_op.f('ix_refresh_tokens_user_id'), ['user_id'], unique=False)
 
-    op.create_table('role_permissions',
-    sa.Column('role_id', sa.Integer(), nullable=False),
-    sa.Column('permission_id', sa.Integer(), nullable=False),
-    sa.ForeignKeyConstraint(['permission_id'], ['permissions.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['role_id'], ['roles.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('role_id', 'permission_id')
-    )
     op.create_table('user_role_scopes',
     sa.Column('role_id', sa.Integer(), nullable=False),
     sa.Column('facility_id', sa.String(length=36), nullable=True),
@@ -288,9 +291,13 @@ def upgrade() -> None:
     sa.Column('date_delivered', sa.DateTime(), nullable=True),
     sa.Column('tracking_number', sa.String(length=100), nullable=True),
     sa.Column('notes', sa.String(length=500), nullable=True),
+    sa.Column('batch_number', sa.String(length=50), nullable=True, comment='Batch number for inventory tracking and traceability'),
+    sa.Column('expiry_date', sa.Date(), nullable=True, comment='Expiry date of the blood product'),
+    sa.Column('temperature_maintained', sa.Boolean(), nullable=True, comment='Whether proper temperature was maintained during transport'),
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('blood_product_id', sa.UUID(), nullable=True),
+    sa.Column('request_id', sa.UUID(), nullable=True, comment='Link to the original blood request that triggered this distribution'),
     sa.Column('dispatched_from_id', sa.UUID(), nullable=False),
     sa.Column('dispatched_to_id', sa.UUID(), nullable=False),
     sa.Column('created_by_id', sa.UUID(), nullable=True),
@@ -298,10 +305,12 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['created_by_id'], ['users.id'], ondelete='SET NULL'),
     sa.ForeignKeyConstraint(['dispatched_from_id'], ['blood_banks.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['dispatched_to_id'], ['facilities.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['request_id'], ['blood_requests.id'], ondelete='SET NULL'),
     sa.PrimaryKeyConstraint('id')
     )
     with op.batch_alter_table('blood_distributions', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_blood_distributions_id'), ['id'], unique=True)
+        batch_op.create_index(batch_op.f('ix_blood_distributions_request_id'), ['request_id'], unique=False)
 
     op.create_table('track_states',
     sa.Column('id', sa.UUID(), nullable=False),
@@ -325,6 +334,7 @@ def downgrade() -> None:
     # ### commands auto generated by Alembic - please adjust! ###
     op.drop_table('track_states')
     with op.batch_alter_table('blood_distributions', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_blood_distributions_request_id'))
         batch_op.drop_index(batch_op.f('ix_blood_distributions_id'))
 
     op.drop_table('blood_distributions')
@@ -351,7 +361,6 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_user_role_scopes_facility_id'))
 
     op.drop_table('user_role_scopes')
-    op.drop_table('role_permissions')
     with op.batch_alter_table('refresh_tokens', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_refresh_tokens_user_id'))
         batch_op.drop_index(batch_op.f('ix_refresh_tokens_token_hash'))
@@ -368,10 +377,11 @@ def downgrade() -> None:
         batch_op.drop_index('ix_impersonation_active_moderator')
 
     op.drop_table('impersonation_sessions')
-    op.drop_table('dashboard_daily_summary')
     with op.batch_alter_table('blood_requests', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_blood_requests_source_facility_id'))
         batch_op.drop_index(batch_op.f('ix_blood_requests_request_group_id'))
         batch_op.drop_index(batch_op.f('ix_blood_requests_id'))
+        batch_op.drop_index(batch_op.f('ix_blood_requests_facility_id'))
 
     op.drop_table('blood_requests')
     with op.batch_alter_table('blood_banks', schema=None) as batch_op:
@@ -385,6 +395,8 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_users_email'))
 
     op.drop_table('users')
+    op.drop_table('role_permissions')
+    op.drop_table('dashboard_daily_summary')
     with op.batch_alter_table('roles', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_roles_name'))
 
