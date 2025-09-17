@@ -1,8 +1,6 @@
-from app.models.health_facility import Facility
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import or_
 from app.schemas.distribution import (
     BloodDistributionCreate,
     BloodDistributionResponse,
@@ -13,7 +11,6 @@ from app.schemas.distribution import (
 from app.services.distribution import BloodDistributionService
 from app.models.user import User
 from app.models.blood_bank import BloodBank
-# from app.models.distribution import BloodDistributionStatus
 from app.utils.permission_checker import require_permission
 from app.utils.ip_address_finder import get_client_ip
 from app.dependencies import get_db
@@ -23,6 +20,7 @@ from app.utils.logging_config import (
     log_security_event,
     log_performance_metric,
 )
+from app.utils.generic_id import get_user_blood_bank_id
 from uuid import UUID
 from typing import List, Optional
 from datetime import datetime
@@ -31,44 +29,6 @@ import time
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/blood-distribution", tags=["blood distribution"])
-
-
-# Helper function to get blood bank ID for the current user
-async def get_user_blood_bank_id(db: AsyncSession, user_id: UUID) -> UUID:
-    """Get the blood bank ID associated with the user"""
-
-    result = await db.execute(
-        select(BloodBank).where(
-            or_(
-                # Case 1: User is the blood bank manager
-                BloodBank.manager_id == user_id,
-                # Case 2: User is staff working in the facility
-                BloodBank.facility_id
-                == (
-                    select(User.work_facility_id)
-                    .where(User.id == user_id)
-                    .scalar_subquery()
-                ),
-                # Case 3: User is the facility manager
-                BloodBank.facility_id
-                == (
-                    select(Facility.id)
-                    .where(Facility.facility_manager_id == user_id)
-                    .scalar_subquery()
-                ),
-            )
-        )
-    )
-
-    blood_bank = result.scalar_one_or_none()
-
-    if blood_bank:
-        return blood_bank.id
-
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="You are not associated with any blood bank",
-    )
 
 
 @router.post(
@@ -148,6 +108,25 @@ async def create_distribution(
             blood_bank_id=blood_bank_id,
             created_by_id=current_user.id,
         )
+
+        # Validate distribution safety after creation
+        if not await distribution_service.validate_distribution_safety(
+            new_distribution
+        ):
+            await db.rollback()
+            logger.warning(
+                "Distribution creation denied - safety validation failed",
+                extra={
+                    "event_type": "distribution_creation_denied",
+                    "user_id": current_user_id,
+                    "reason": "safety_validation_failed",
+                    "distribution_id": str(new_distribution.id),
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Distribution failed safety validation",
+            )
 
         # Commit the transaction since we removed the transaction context in the service
         await db.commit()
@@ -231,7 +210,7 @@ async def create_distribution(
                 new_distribution.created_by.last_name
                 if new_distribution.created_by
                 else None
-            )
+            ),
         )
 
         return response
@@ -360,7 +339,7 @@ async def get_distributions_by_facility(
                 dispatched_to_name=(
                     dist.dispatched_to.facility_name if dist.dispatched_to else None
                 ),
-                created_by_name=dist.created_by.last_name if dist.created_by else None
+                created_by_name=dist.created_by.last_name if dist.created_by else None,
             )
             for dist in user_distributions
         ]
@@ -505,7 +484,7 @@ async def get_distribution(
             ),
             created_by_name=(
                 distribution.created_by.last_name if distribution.created_by else None
-            )
+            ),
         )
 
         return response
@@ -661,7 +640,7 @@ async def list_distributions(
                 dispatched_to_name=(
                     dist.dispatched_to.facility_name if dist.dispatched_to else None
                 ),
-                created_by_name=dist.created_by.last_name if dist.created_by else None
+                created_by_name=dist.created_by.last_name if dist.created_by else None,
             )
             for dist in filtered_distributions
         ]
@@ -862,7 +841,7 @@ async def update_distribution(
                 updated_distribution.created_by.last_name
                 if updated_distribution.created_by
                 else None
-            )
+            ),
         )
 
         return response
@@ -1050,3 +1029,143 @@ async def delete_distribution(
             ip_address=client_ip,
         )
         raise HTTPException(status_code=500, detail="Distribution deletion failed")
+
+
+# =============================================================================
+# NEW ENHANCED ROUTES FOR IMPROVED FUNCTIONALITY
+# =============================================================================
+
+
+@router.get("/by-request/{request_id}", response_model=List[BloodDistributionResponse])
+async def get_distributions_by_request(
+    request_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_permission(
+            "facility.manage", "laboratory.manage", "blood.inventory.can_view"
+        )
+    ),
+):
+    """Get all distributions for a specific blood request."""
+    try:
+        distribution_service = BloodDistributionService(db)
+        distributions = await distribution_service.get_distributions_by_request(
+            request_id
+        )
+
+        return [
+            BloodDistributionResponse.model_validate(dist, from_attributes=True)
+            for dist in distributions
+        ]
+    except Exception as e:
+        logger.error(f"Failed to get distributions by request: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve distributions for request",
+        )
+
+
+@router.get("/expiring", response_model=List[BloodDistributionResponse])
+async def get_expiring_distributions(
+    days_ahead: int = 7,
+    request: Request = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_permission(
+            "facility.manage", "laboratory.manage", "blood.inventory.manage"
+        )
+    ),
+):
+    """Get distributions with products expiring within specified days."""
+    try:
+        blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
+        distribution_service = BloodDistributionService(db)
+
+        distributions = await distribution_service.get_expiring_distributions(
+            days_ahead=days_ahead, blood_bank_id=blood_bank_id
+        )
+
+        logger.info(
+            f"Retrieved {len(distributions)} expiring distributions",
+            extra={
+                "event_type": "expiring_distributions_retrieved",
+                "user_id": str(current_user.id),
+                "days_ahead": days_ahead,
+                "count": len(distributions),
+            },
+        )
+
+        return [
+            BloodDistributionResponse.model_validate(dist, from_attributes=True)
+            for dist in distributions
+        ]
+    except Exception as e:
+        logger.error(f"Failed to get expiring distributions: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve expiring distributions",
+        )
+
+
+@router.patch("/{distribution_id}/temperature-breach")
+async def mark_temperature_breach(
+    distribution_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        require_permission(
+            "facility.manage", "laboratory.manage", "blood.inventory.manage"
+        )
+    ),
+):
+    """Mark a distribution as having temperature breach during transport."""
+    start_time = time.time()
+    current_user_id = str(current_user.id)
+    client_ip = get_client_ip(request)
+
+    try:
+        distribution_service = BloodDistributionService(db)
+        distribution = await distribution_service.get_distribution(distribution_id)
+
+        if not distribution:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Distribution not found"
+            )
+
+        # Mark temperature breach
+        distribution.mark_temperature_breach()
+        await db.commit()
+
+        # Log security event for temperature breach
+        log_security_event(
+            event_type="temperature_breach_marked",
+            details={
+                "distribution_id": str(distribution_id),
+                "blood_product": distribution.blood_product,
+                "blood_type": distribution.blood_type,
+                "quantity": distribution.quantity,
+            },
+            user_id=current_user_id,
+            ip_address=client_ip,
+        )
+
+        logger.warning(
+            "Temperature breach marked for distribution",
+            extra={
+                "event_type": "temperature_breach_marked",
+                "user_id": current_user_id,
+                "distribution_id": str(distribution_id),
+                "blood_product": distribution.blood_product,
+            },
+        )
+
+        return {"message": "Temperature breach marked successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to mark temperature breach: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to mark temperature breach",
+        )

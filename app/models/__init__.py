@@ -7,3 +7,4 @@ from .tracking_model import TrackState
 from .patient import Patient
 from .request import BloodRequest
 from .notification import Notification
+from .device import DeviceTrust, DeviceRegistration, DeviceSecurityEvent

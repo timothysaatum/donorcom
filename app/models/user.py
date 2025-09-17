@@ -3,7 +3,7 @@ import uuid
 from typing import Optional
 from sqlalchemy import String, Boolean, DateTime, ForeignKey, func, Integer
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, remote, foreign
 from app.db.base import Base
 from .rbac import user_roles
 from sqlalchemy.dialects.postgresql import TIMESTAMP
@@ -46,7 +46,7 @@ class User(Base):
     facility = relationship(
         "Facility",
         back_populates="facility_manager",
-        foreign_keys="Facility.facility_manager_id",
+        primaryjoin="User.id == foreign(remote(Facility.facility_manager_id))",
         uselist=False,
     )
 
@@ -84,6 +84,9 @@ class User(Base):
     roles = relationship("Role", secondary=user_roles, back_populates="users")
     sessions = relationship(
         "UserSession", back_populates="user", cascade="all, delete-orphan"
+    )
+    trusted_devices = relationship(
+        "DeviceTrust", back_populates="user", cascade="all, delete-orphan"
     )
 
     # --- Methods ---
