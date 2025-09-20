@@ -475,7 +475,7 @@ async def logout(
 
         # Terminate current session if identified
         if session_id:
-            
+
             await SessionManager.terminate_session(
                 db=db, session_id=uuid.UUID(session_id), reason="user_logout"
             )
