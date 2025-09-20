@@ -1,6 +1,4 @@
-import time
 from app.models.tracking_model import TrackState
-from app.routes import request
 from app.schemas.tracking_schema import TrackStateStatus
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -23,37 +21,13 @@ from app.schemas.request import (
 from app.schemas.inventory import PaginatedResponse
 from app.utils.notification_util import notify
 import logging
-from functools import wraps
-
+from app.utils.performance_monitor import performance_monitor
 logger = logging.getLogger(__name__)
-
-
-def performance_monitor(func):
-    """Decorator to monitor function performance"""
-
-    @wraps(func)
-    async def wrapper(*args, **kwargs):
-        start_time = time.time()
-        try:
-            result = await func(*args, **kwargs)
-            execution_time = time.time() - start_time
-            if execution_time > 0.1:  # Log only if > 100ms
-                logger.info(f"{func.__name__} executed in {execution_time:.3f} seconds")
-            return result
-        except Exception as e:
-            execution_time = time.time() - start_time
-            logger.error(
-                f"{func.__name__} failed after {execution_time:.3f} seconds: {e}"
-            )
-            raise
-
-    return wrapper
 
 
 class BloodRequestService:
     def __init__(self, db: AsyncSession):
         self.db = db
-        # Simple in-memory cache for facility names (cleared on service restart)
         self._facility_name_cache: Dict[str, str] = {}
 
     def _get_empty_paginated_response(
@@ -69,10 +43,6 @@ class BloodRequestService:
             has_next=False,
             has_prev=False,
         )
-
-    # =============================================================================
-    # PERFORMANCE OPTIMIZATION METHODS
-    # =============================================================================
 
     async def get_facility_request_patterns(
         self, source_facility_id: UUID, days_back: int = 30
@@ -650,7 +620,6 @@ class BloodRequestService:
                 f"Found {len(requests_to_cancel)} requests to cancel in group {request_group_id}"
             )
 
-            # Use SQLAlchemy's update() instead of raw SQL
             update_stmt = (
                 update(BloodRequest)
                 .where(
@@ -756,7 +725,7 @@ class BloodRequestService:
                 groups_dict[group_id] = []
             groups_dict[group_id].append(
                 request
-            )  # FIXED: This was missing proper indentation
+            )
 
         # Convert to group responses
         groups = []

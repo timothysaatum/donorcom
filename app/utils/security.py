@@ -549,17 +549,7 @@ class TokenManager:
         absolute_expiry = current_time + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
         regular_expiry = current_time + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
         token_hash = hashlib.sha256(token.encode()).hexdigest()
-        refresh_token_record = RefreshToken(
-            user_id=user_id,
-            token_hash=token_hash,
-            device_info=device_info,
-            ip_address=ip_address,
-            expires_at=regular_expiry,
-            absolute_expires_at=absolute_expiry,
-            last_used_at=current_time,
-            usage_count=1,
 
-        )
         refresh_token_record = RefreshToken(
             user_id=user_id,
             token_hash=token_hash,
@@ -589,14 +579,10 @@ class TokenManager:
         result = await db.execute(
             select(RefreshToken)
             .options(selectinload(RefreshToken.user))
-            .where(
-                RefreshToken.token_hash == token_hash,
-                RefreshToken.revoked == False
-            )
+            .where(RefreshToken.token_hash == token_hash, RefreshToken.revoked == False)
         )
 
         return result.scalar_one_or_none()
-
 
     @staticmethod
     async def revoke_refresh_token(db: AsyncSession, token_id: uuid.UUID):

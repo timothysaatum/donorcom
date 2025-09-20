@@ -1,53 +1,128 @@
-from pydantic import BaseModel, EmailStr, Field, field_validator, ConfigDict, ValidationInfo
+from pydantic import (
+    BaseModel,
+    EmailStr,
+    Field,
+    field_validator,
+    ConfigDict,
+    StringConstraints,
+)
 from app.schemas.blood_bank import BloodBankInFacilityResponse, BloodBankBase
-from typing import Optional
+from typing import Optional, Annotated
 from datetime import datetime
 from uuid import UUID
-import re
 
 
-class FacilityBase(BaseModel):
-    facility_name: str = Field(..., min_length=5, max_length=155)
+# --- Base Configuration for Performance ---
+class BaseSchema(BaseModel):
+    """Base schema with optimized configuration for performance"""
+
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        validate_assignment=True,
+        use_enum_values=True,
+        frozen=False,
+        extra="forbid",
+        from_attributes=True,
+    )
+
+
+class FacilityBase(BaseSchema):
+    facility_name: Annotated[
+        str, StringConstraints(min_length=3, max_length=155, strip_whitespace=True)
+    ] = Field(..., description="Hospital/facility name")
     facility_email: EmailStr
-    facility_contact_number: Optional[str] = Field(..., min_length=10, max_length=14)
-    facility_digital_address: str = Field(..., min_length=10, max_length=15)
-    
-    @field_validator("facility_digital_address")
-    def match_gps_pattern(cls, v: str, values: ValidationInfo) -> str:
-        gps_pattern = re.compile(r"^[A-Z]{2}-\d{3,5}-\d{3,5}$")
-        if not gps_pattern.match(v):
-            raise ValueError("Invalid digital address format. Expected format: 'GA-123-4567'")
-        return v
+    facility_contact_number: Annotated[
+        str,
+        StringConstraints(
+            min_length=10,
+            max_length=15,
+            pattern=r"^\+?[\d\s\-\(\)]{10,15}$",
+            strip_whitespace=True,
+        ),
+    ] = Field(..., description="Facility contact number")
+    facility_digital_address: Annotated[
+        str,
+        StringConstraints(
+            min_length=8,
+            max_length=15,
+            pattern=r"^[A-Z]{2}-\d{3,5}-\d{3,5}$",
+            strip_whitespace=True,
+        ),
+    ] = Field(..., description="GPS digital address (e.g., GA-123-4567)")
 
-    model_config = ConfigDict(from_attributes=True)
+    @field_validator("facility_digital_address")
+    @classmethod
+    def validate_gps_pattern(cls, v: str) -> str:
+        # Pattern already enforced by StringConstraints, this is additional validation
+        if not v.startswith(
+            (
+                "GA-",
+                "AS-",
+                "BA-",
+                "CP-",
+                "EP-",
+                "NP-",
+                "UE-",
+                "UW-",
+                "TV-",
+                "VR-",
+                "XL-",
+            )
+        ):
+            raise ValueError("Digital address must start with valid Ghana region code")
+        return v
 
 
 class FacilityWithBloodBankCreate(FacilityBase):
     """Schema for creating a facility with its associated blood bank in one request"""
+
     blood_bank: Optional[BloodBankBase] = None
 
 
-class FacilityUpdate(BaseModel):
-    facility_name: Optional[str] = Field(None, min_length=5, max_length=155)
+class FacilityUpdate(BaseSchema):
+    facility_name: Optional[
+        Annotated[
+            str, StringConstraints(min_length=3, max_length=155, strip_whitespace=True)
+        ]
+    ] = None
     facility_email: Optional[EmailStr] = None
-    facility_contact_number: Optional[str] = Field(None, min_length=10, max_length=14)
-    facility_digital_address: Optional[str] = Field(None, min_length=10, max_length=15)
+    facility_contact_number: Optional[
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=10,
+                max_length=15,
+                pattern=r"^\+?[\d\s\-\(\)]{10,15}$",
+                strip_whitespace=True,
+            ),
+        ]
+    ] = None
+    facility_digital_address: Optional[
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=8,
+                max_length=15,
+                pattern=r"^[A-Z]{2}-\d{3,5}-\d{3,5}$",
+                strip_whitespace=True,
+            ),
+        ]
+    ] = None
     facility_manager_id: Optional[UUID] = None
 
     @field_validator("facility_digital_address")
-    def match_gps_pattern(cls, v: str, values: ValidationInfo) -> str:
-        if v is not None:
-            gps_pattern = re.compile(r"^[A-Z]{2}-\d{3,5}-\d{3,5}$")
-            if not gps_pattern.match(v):
-                raise ValueError("Invalid digital address format. Expected format: 'GA-123-4567'")
+    @classmethod
+    def validate_gps_pattern(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not v.startswith(
+            ("GA-", "AS-", "BA-", "CP-", "EP-", "NP-", "UE-", "UW-", "TV-", "VR-", "XL-", "UK-")
+        ):
+            raise ValueError("Digital address must start with valid Ghana region code")
         return v
 
-    model_config = ConfigDict(from_attributes=True)
 
-
-class FacilityResponse(BaseModel):
+class FacilityResponse(BaseSchema):
     id: UUID
-    facility_name: str = Field(..., min_length=5, max_length=155)
+    facility_name: str
     facility_email: EmailStr
     facility_contact_number: Optional[str] = Field(..., min_length=10, max_length=14)
     facility_digital_address: str = Field(..., min_length=10, max_length=15)

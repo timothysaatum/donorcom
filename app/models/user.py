@@ -1,9 +1,9 @@
 from datetime import datetime, timezone, timedelta
 import uuid
 from typing import Optional
-from sqlalchemy import String, Boolean, DateTime, ForeignKey, func, Integer
+from sqlalchemy import String, Boolean, DateTime, ForeignKey, func, Integer, Index
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship, remote, foreign
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 from .rbac import user_roles
 from sqlalchemy.dialects.postgresql import TIMESTAMP
@@ -20,22 +20,23 @@ class User(Base):
         unique=True,
         index=True,
     )
-    first_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    last_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    first_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    last_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     email: Mapped[str] = mapped_column(
         String(100), unique=True, index=True, nullable=False
     )
     password: Mapped[str] = mapped_column(String(255), nullable=False)
 
     phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    status: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    status: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
 
     # --- Relationships ---
     work_facility_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("facilities.id", ondelete="SET NULL"),
         nullable=True,
+        index=True,
     )
     work_facility = relationship(
         "Facility",
@@ -59,25 +60,27 @@ class User(Base):
         "RefreshToken", back_populates="user", cascade="all, delete-orphan"
     )
 
-    is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_banned: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_suspended: Mapped[bool] = mapped_column(Boolean, default=False)
-    verification_token: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    is_banned: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    is_suspended: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    verification_token: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, index=True
+    )
     failed_login_attempts: Mapped[int] = mapped_column(
-        Integer, default=0, nullable=False
+        Integer, default=0, nullable=False, index=True
     )
     locked_until: Mapped[Optional[DateTime]] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=True
+        TIMESTAMP(timezone=True), nullable=True, index=True
     )
 
     created_at: Mapped[DateTime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=func.now()
+        TIMESTAMP(timezone=True), server_default=func.now(), index=True
     )
     updated_at: Mapped[DateTime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     last_login: Mapped[Optional[DateTime]] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=True
+        TIMESTAMP(timezone=True), nullable=True, index=True
     )
 
     # --- RBAC Relationship ---
@@ -163,26 +166,84 @@ class User(Base):
 
         return True, None
 
-    def revoke_all_refresh_tokens(self):
+    async def revoke_all_refresh_tokens(self, session=None):
         """Revoke all refresh tokens for this user (useful for logout all devices)"""
-        for token in self.refresh_tokens:
-            if not token.revoked:
-                token.revoke()
+        from sqlalchemy.orm import selectinload
+        from sqlalchemy import select
+
+        if session is None:
+            # If no session provided, try to get refresh_tokens directly
+            # This assumes the relationship is already loaded
+            if hasattr(self, "_sa_instance_state") and self._sa_instance_state.session:
+                session = self._sa_instance_state.session
+
+        if session:
+            # Use session to explicitly load refresh tokens
+            stmt = select(RefreshToken).where(RefreshToken.user_id == self.id)
+            result = await session.execute(stmt)
+            tokens = result.scalars().all()
+
+            for token in tokens:
+                if not token.revoked:
+                    token.revoke()
+        else:
+            # Fallback: try to access already loaded tokens
+            try:
+                for token in self.refresh_tokens:
+                    if not token.revoked:
+                        token.revoke()
+            except Exception:
+                # If we can't access tokens, skip revocation
+                pass
 
     # Session Management
-    def get_active_sessions(self):
+    async def get_active_sessions(self, session=None):
         """Get all active sessions for this user"""
-        return [session for session in self.sessions if session.is_valid]
+        from sqlalchemy import select
 
-    def terminate_all_sessions(self, except_session_id: uuid.UUID = None):
+        if session:
+            # Use session to explicitly load sessions
+            stmt = select(UserSession).where(
+                UserSession.user_id == self.id, UserSession.is_active == True
+            )
+            result = await session.execute(stmt)
+            return result.scalars().all()
+        else:
+            # Fallback: try to access already loaded sessions
+            try:
+                return [session for session in self.sessions if session.is_valid]
+            except Exception:
+                return []
+
+    async def terminate_all_sessions(
+        self, except_session_id: uuid.UUID = None, session=None
+    ):
         """Terminate all sessions except the specified one"""
-        for session in self.sessions:
-            if session.is_active and session.id != except_session_id:
-                session.terminate("user_logout_all")
+        from sqlalchemy import select, update
 
-    def get_concurrent_sessions_count(self) -> int:
+        if session:
+            # Use session to update sessions directly
+            stmt = update(UserSession).where(
+                UserSession.user_id == self.id, UserSession.is_active == True
+            )
+            if except_session_id:
+                stmt = stmt.where(UserSession.id != except_session_id)
+
+            stmt = stmt.values(is_active=False, terminated_at=func.now())
+            await session.execute(stmt)
+        else:
+            # Fallback: try to access already loaded sessions
+            try:
+                for user_session in self.sessions:
+                    if user_session.is_active and user_session.id != except_session_id:
+                        user_session.terminate("user_logout_all")
+            except Exception:
+                pass
+
+    async def get_concurrent_sessions_count(self, session=None) -> int:
         """Get count of active sessions"""
-        return len(self.get_active_sessions())
+        active_sessions = await self.get_active_sessions(session)
+        return len(active_sessions)
 
     def has_suspicious_activity(self) -> bool:
         """Check if user has any suspicious sessions"""
@@ -220,7 +281,9 @@ class RefreshToken(Base):
         TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     absolute_expires_at: Mapped[DateTime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=False
+        TIMESTAMP(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc) + timedelta(days=30),
     )
     usage_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     last_used_at: Mapped[DateTime] = mapped_column(DateTime, nullable=False)
@@ -231,6 +294,18 @@ class RefreshToken(Base):
 
     # --- Relationships ---
     user = relationship("User", back_populates="refresh_tokens")
+
+    def __init__(self, **kwargs):
+        """Initialize RefreshToken with automatic absolute_expires_at default"""
+        if "absolute_expires_at" not in kwargs and "expires_at" in kwargs:
+            # Default absolute expiration to 30 days from creation or same as expires_at
+            kwargs["absolute_expires_at"] = kwargs["expires_at"]
+        elif "absolute_expires_at" not in kwargs:
+            # Fallback default
+            kwargs["absolute_expires_at"] = datetime.now(timezone.utc) + timedelta(
+                days=30
+            )
+        super().__init__(**kwargs)
 
     def __repr__(self):
         return f"<RefreshToken(id={self.id}, user_id={self.user_id}, expires_at={self.expires_at})>"
@@ -381,3 +456,14 @@ class UserSession(Base):
     def extend_session(self, minutes: int = 30):
         """Extend session expiry"""
         self.expires_at = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+
+    # --- Table Configuration for Performance ---
+    __table_args__ = (
+        # Composite indexes for common query patterns in hospital user sessions
+        Index("idx_session_user_active", "user_id", "is_active"),
+        Index("idx_session_device_user", "device_fingerprint", "user_id"),
+        Index("idx_session_token_active", "session_token", "is_active"),
+        Index("idx_session_ip_user", "ip_address", "user_id"),
+        Index("idx_session_created_active", "created_at", "is_active"),
+        Index("idx_session_suspicious", "is_suspicious", "risk_score"),
+    )

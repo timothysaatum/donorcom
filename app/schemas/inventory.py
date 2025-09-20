@@ -1,8 +1,29 @@
-from pydantic import BaseModel, Field, field_validator, ConfigDict, ValidationInfo
+from pydantic import (
+    BaseModel,
+    Field,
+    field_validator,
+    ConfigDict,
+    ValidationInfo,
+    StringConstraints,
+)
 from uuid import UUID
 from datetime import datetime, date
-from typing import Optional, List, Generic, TypeVar, Any, Dict
+from typing import Optional, List, Generic, TypeVar, Any, Dict, Annotated
 from enum import Enum
+
+
+# --- Base Configuration for Performance ---
+class BaseSchema(BaseModel):
+    """Base schema with optimized configuration for performance"""
+
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        validate_assignment=True,
+        use_enum_values=True,
+        frozen=False,
+        extra="forbid",
+        from_attributes=True,
+    )
 
 
 class SortOrder(str, Enum):
@@ -92,14 +113,16 @@ class BloodProduct(str, Enum):
         return normalization_map.get(product_lower, product_name)
 
 
-class BloodInventoryCreate(BaseModel):
-    blood_product: str = Field(
-        ..., min_length=1, max_length=50, description="Blood product type"
-    )
-    blood_type: str = Field(
-        ..., min_length=1, max_length=10, description="Blood type (e.g., A+, B-, O+)"
-    )
-    quantity: int = Field(..., gt=0, description="Quantity in units")
+class BloodInventoryCreate(BaseSchema):
+    """Enhanced blood inventory creation schema with validation"""
+
+    blood_product: Annotated[
+        str, StringConstraints(min_length=2, max_length=50, strip_whitespace=True)
+    ] = Field(..., description="Blood product type")
+    blood_type: Annotated[
+        str, StringConstraints(pattern=r"^(A|B|AB|O)[+-]$", strip_whitespace=True)
+    ] = Field(..., description="Blood type (e.g., A+, B-, O+)")
+    quantity: int = Field(..., gt=0, le=1000, description="Quantity in units (1-1000)")
     expiry_date: date = Field(..., description="Expiration date of the blood unit")
 
     @field_validator("blood_type")
@@ -114,25 +137,49 @@ class BloodInventoryCreate(BaseModel):
     @field_validator("blood_product")
     @classmethod
     def validate_blood_product(cls, v: str) -> str:
-        if v not in BloodProduct.get_all_accepted_values():
+        normalized = BloodProduct.normalize_product_name(v)
+        if normalized not in BloodProduct.get_values():
             raise ValueError(
                 f'Blood product must be one of: {", ".join(BloodProduct.get_values())}'
             )
-        # Normalize the product name
-        return BloodProduct.normalize_product_name(v)
+        return normalized
 
     @field_validator("expiry_date")
     @classmethod
     def validate_expiry_date(cls, v: date) -> date:
+        # Check if date is in the past
         if v < date.today():
             raise ValueError("Expiry date cannot be in the past")
+
+        # Check if date is today (should be in the future)
+        if v == date.today():
+            raise ValueError("Expiry date must be in the future")
+
+        # Blood typically expires within 42 days for red cells, 5 days for platelets
+        max_expiry_days = 42  # Conservative estimate for hospital inventory
+        max_expiry = date.today().replace(
+            day=min(date.today().day + max_expiry_days, 31)
+        )
+        if v > max_expiry:
+            raise ValueError(
+                f"Expiry date seems too far in the future (max {max_expiry_days} days)"
+            )
+
         return v
 
 
-class BloodInventoryUpdate(BaseModel):
-    blood_product: Optional[str] = Field(None, min_length=1, max_length=50)
-    blood_type: Optional[str] = Field(None, min_length=1, max_length=10)
-    quantity: Optional[int] = Field(None, gt=0)
+class BloodInventoryUpdate(BaseSchema):
+    blood_product: Optional[
+        Annotated[
+            str, StringConstraints(min_length=2, max_length=50, strip_whitespace=True)
+        ]
+    ] = None
+    blood_type: Optional[
+        Annotated[
+            str, StringConstraints(pattern=r"^(A|B|AB|O)[+-]$", strip_whitespace=True)
+        ]
+    ] = None
+    quantity: Optional[int] = Field(None, gt=0, le=1000)
     expiry_date: Optional[date] = Field(
         None, description="Expiration date of the blood unit"
     )
@@ -150,11 +197,12 @@ class BloodInventoryUpdate(BaseModel):
     @classmethod
     def validate_blood_product(cls, v: Optional[str]) -> Optional[str]:
         if v is not None:
-            if v not in BloodProduct.get_all_accepted_values():
+            normalized = BloodProduct.normalize_product_name(v)
+            if normalized not in BloodProduct.get_values():
                 raise ValueError(
                     f'Blood product must be one of: {", ".join(BloodProduct.get_values())}'
                 )
-            return BloodProduct.normalize_product_name(v)
+            return normalized
         return v
 
     @field_validator("expiry_date")

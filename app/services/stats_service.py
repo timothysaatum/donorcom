@@ -1,14 +1,10 @@
-from app.models.user import User
-from app.schemas.distribution import DistributionStatus
-from sqlalchemy import select, func, extract, and_, case, or_
+from sqlalchemy import select, func, extract, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date, datetime, timedelta
 from typing import List, Dict, Any, Optional
 from app.models.request import (
     BloodRequest,
     DashboardDailySummary,
-    PriorityStatus,
-    RequestStatus,
 )
 from app.models.distribution import BloodDistribution
 import calendar

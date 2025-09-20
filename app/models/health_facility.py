@@ -1,8 +1,8 @@
 import uuid
 from typing import Optional
-from sqlalchemy import String, DateTime, Float, func, ForeignKey
+from sqlalchemy import String, DateTime, Float, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship, foreign
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 

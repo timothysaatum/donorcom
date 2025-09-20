@@ -1,11 +1,26 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict, StringConstraints
 from uuid import UUID, uuid4
 from datetime import datetime
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Annotated
 import logging
+import re
 
 logger = logging.getLogger(__name__)
+
+
+# --- Base Configuration for Performance ---
+class BaseSchema(BaseModel):
+    """Base schema with optimized configuration for performance"""
+
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        validate_assignment=True,
+        use_enum_values=True,
+        frozen=False,
+        extra="forbid",
+        from_attributes=True,
+    )
 
 
 class ProcessingStatus(str, Enum):
@@ -43,22 +58,27 @@ class RequestDirection(str, Enum):
     ALL = "all"
 
 
-class BloodRequestCreate(BaseModel):
-
-    blood_type: str = Field(..., description="Blood type (e.g., A+, B-, O+, AB-)")
-    blood_product: str = Field(..., description="Type of blood product needed")
+class BloodRequestCreate(BaseSchema):
+    blood_type: Annotated[
+        str, StringConstraints(pattern=r"^(A|B|AB|O)[+-]$", strip_whitespace=True)
+    ] = Field(..., description="Blood type (e.g., A+, B-, O+, AB-)")
+    blood_product: Annotated[
+        str, StringConstraints(min_length=2, max_length=50, strip_whitespace=True)
+    ] = Field(..., description="Type of blood product needed")
     quantity_requested: int = Field(
-        ..., gt=0, description="Quantity of blood product needed"
+        ..., gt=0, le=100, description="Number of units requested (1-100)"
     )
     facility_ids: List[UUID] = Field(
         ...,
-        min_items=1,
-        max_items=10,
+        min_length=1,
+        max_length=10,
         description="List of facility IDs to send request to",
     )
-    notes: Optional[str] = Field(None, description="Additional notes or requirements")
+    notes: Optional[Annotated[str, StringConstraints(max_length=500)]] = Field(
+        None, description="Additional notes or requirements"
+    )
     priority: Optional[str] = Field(
-        None, description="Add request priority", example="urgent"
+        "not_urgent", description="Request priority", pattern=r"^(urgent|not_urgent)$"
     )
 
     @field_validator("facility_ids")

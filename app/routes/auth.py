@@ -20,7 +20,7 @@ from app.dependencies import get_db
 from app.utils.email_verification import send_verification_email
 from app.utils.security import (
     TokenManager,
-    SessionManager,  # New import
+    SessionManager,
     get_current_user,
     authenticate_user,
     cleanup_expired_refresh_tokens,

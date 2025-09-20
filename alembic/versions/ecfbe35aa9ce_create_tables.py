@@ -1,8 +1,8 @@
 """create tables
 
-Revision ID: 8929b47e6048
+Revision ID: ecfbe35aa9ce
 Revises: 
-Create Date: 2025-09-17 00:40:22.096374
+Create Date: 2025-09-18 18:28:21.722636
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = '8929b47e6048'
+revision: str = 'ecfbe35aa9ce'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -136,7 +136,7 @@ def upgrade() -> None:
     sa.Column('blood_product', sa.String(length=50), nullable=False),
     sa.Column('quantity_requested', sa.Integer(), nullable=False),
     sa.Column('request_status', sa.Enum('pending', 'accepted', 'rejected', 'cancelled', name='requeststatus'), nullable=False),
-    sa.Column('processing_status', sa.Enum('pending', 'dispatched', 'completed', name='processingstatus'), nullable=False),
+    sa.Column('processing_status', sa.Enum('pending', 'initiated', 'dispatched', 'completed', name='processingstatus'), nullable=False),
     sa.Column('priority', sa.Enum('urgent', 'not_urgent', name='prioritystatus'), nullable=True),
     sa.Column('notes', sa.Text(), nullable=True),
     sa.Column('cancellation_reason', sa.String(length=200), nullable=True),
@@ -158,6 +158,65 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f('ix_blood_requests_id'), ['id'], unique=False)
         batch_op.create_index(batch_op.f('ix_blood_requests_request_group_id'), ['request_group_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_blood_requests_source_facility_id'), ['source_facility_id'], unique=False)
+
+    op.create_table('device_trust',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('user_id', sa.UUID(), nullable=False),
+    sa.Column('device_fingerprint', sa.String(length=64), nullable=False),
+    sa.Column('device_fingerprint_v2', sa.String(length=64), nullable=True),
+    sa.Column('device_name', sa.String(length=100), nullable=True),
+    sa.Column('device_type', sa.String(length=50), nullable=True),
+    sa.Column('operating_system', sa.String(length=100), nullable=True),
+    sa.Column('browser_name', sa.String(length=100), nullable=True),
+    sa.Column('browser_version', sa.String(length=50), nullable=True),
+    sa.Column('trust_score', sa.Integer(), nullable=False),
+    sa.Column('trust_level', sa.String(length=20), nullable=False),
+    sa.Column('is_trusted', sa.Boolean(), nullable=False),
+    sa.Column('is_verified', sa.Boolean(), nullable=False),
+    sa.Column('is_registered', sa.Boolean(), nullable=False),
+    sa.Column('total_sessions', sa.Integer(), nullable=False),
+    sa.Column('successful_logins', sa.Integer(), nullable=False),
+    sa.Column('failed_attempts', sa.Integer(), nullable=False),
+    sa.Column('suspicious_activities', sa.Integer(), nullable=False),
+    sa.Column('verification_challenges_passed', sa.Integer(), nullable=False),
+    sa.Column('verification_challenges_failed', sa.Integer(), nullable=False),
+    sa.Column('risk_score', sa.Integer(), nullable=False),
+    sa.Column('risk_factors', sa.Text(), nullable=True),
+    sa.Column('first_seen_ip', sa.String(length=45), nullable=True),
+    sa.Column('first_seen_country', sa.String(length=3), nullable=True),
+    sa.Column('first_seen_city', sa.String(length=100), nullable=True),
+    sa.Column('last_seen_ip', sa.String(length=45), nullable=True),
+    sa.Column('last_seen_country', sa.String(length=3), nullable=True),
+    sa.Column('last_seen_city', sa.String(length=100), nullable=True),
+    sa.Column('location_consistency_score', sa.Integer(), nullable=False),
+    sa.Column('capabilities', sa.JSON(), nullable=True),
+    sa.Column('hardware_fingerprint', sa.String(length=64), nullable=True),
+    sa.Column('verification_method', sa.String(length=50), nullable=True),
+    sa.Column('verification_token', sa.String(length=255), nullable=True),
+    sa.Column('verification_expires_at', postgresql.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column('first_seen', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('last_seen', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('last_trust_update', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('verified_at', postgresql.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column('registered_at', postgresql.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column('is_active', sa.Boolean(), nullable=False),
+    sa.Column('is_revoked', sa.Boolean(), nullable=False),
+    sa.Column('revoked_at', postgresql.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column('revoked_reason', sa.String(length=255), nullable=True),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    with op.batch_alter_table('device_trust', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_device_trust_device_fingerprint'), ['device_fingerprint'], unique=False)
+        batch_op.create_index(batch_op.f('ix_device_trust_device_fingerprint_v2'), ['device_fingerprint_v2'], unique=False)
+        batch_op.create_index(batch_op.f('ix_device_trust_first_seen_ip'), ['first_seen_ip'], unique=False)
+        batch_op.create_index(batch_op.f('ix_device_trust_id'), ['id'], unique=False)
+        batch_op.create_index('ix_device_trust_last_seen', ['last_seen'], unique=False)
+        batch_op.create_index(batch_op.f('ix_device_trust_last_seen_ip'), ['last_seen_ip'], unique=False)
+        batch_op.create_index('ix_device_trust_risk_score', ['risk_score'], unique=False)
+        batch_op.create_index('ix_device_trust_trust_level', ['trust_level'], unique=False)
+        batch_op.create_index('ix_device_trust_user_fingerprint', ['user_id', 'device_fingerprint'], unique=False)
+        batch_op.create_index(batch_op.f('ix_device_trust_user_id'), ['user_id'], unique=False)
 
     op.create_table('impersonation_sessions',
     sa.Column('id', sa.UUID(), nullable=False),
@@ -281,6 +340,79 @@ def upgrade() -> None:
     with op.batch_alter_table('blood_inventory', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_blood_inventory_id'), ['id'], unique=True)
 
+    op.create_table('device_registrations',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('user_id', sa.UUID(), nullable=False),
+    sa.Column('device_trust_id', sa.UUID(), nullable=True),
+    sa.Column('registration_token', sa.String(length=255), nullable=False),
+    sa.Column('device_fingerprint', sa.String(length=64), nullable=False),
+    sa.Column('challenge_id', sa.String(length=255), nullable=False),
+    sa.Column('challenge_data', sa.Text(), nullable=False),
+    sa.Column('challenge_response', sa.Text(), nullable=True),
+    sa.Column('verification_method', sa.String(length=50), nullable=False),
+    sa.Column('device_name', sa.String(length=100), nullable=True),
+    sa.Column('device_data', sa.JSON(), nullable=False),
+    sa.Column('capabilities', sa.JSON(), nullable=True),
+    sa.Column('status', sa.String(length=20), nullable=False),
+    sa.Column('attempts', sa.Integer(), nullable=False),
+    sa.Column('max_attempts', sa.Integer(), nullable=False),
+    sa.Column('registration_ip', sa.String(length=45), nullable=True),
+    sa.Column('registration_country', sa.String(length=3), nullable=True),
+    sa.Column('registration_city', sa.String(length=100), nullable=True),
+    sa.Column('initiated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('expires_at', postgresql.TIMESTAMP(timezone=True), nullable=False),
+    sa.Column('completed_at', postgresql.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column('last_attempt_at', postgresql.TIMESTAMP(timezone=True), nullable=True),
+    sa.ForeignKeyConstraint(['device_trust_id'], ['device_trust.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    with op.batch_alter_table('device_registrations', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_device_registrations_device_fingerprint'), ['device_fingerprint'], unique=False)
+        batch_op.create_index(batch_op.f('ix_device_registrations_device_trust_id'), ['device_trust_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_device_registrations_id'), ['id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_device_registrations_registration_token'), ['registration_token'], unique=True)
+        batch_op.create_index(batch_op.f('ix_device_registrations_user_id'), ['user_id'], unique=False)
+
+    op.create_table('device_security_events',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('user_id', sa.UUID(), nullable=False),
+    sa.Column('device_trust_id', sa.UUID(), nullable=True),
+    sa.Column('session_id', sa.UUID(), nullable=True),
+    sa.Column('event_type', sa.String(length=50), nullable=False),
+    sa.Column('event_category', sa.String(length=20), nullable=False),
+    sa.Column('severity', sa.String(length=10), nullable=False),
+    sa.Column('description', sa.Text(), nullable=False),
+    sa.Column('event_data', sa.JSON(), nullable=True),
+    sa.Column('risk_score_impact', sa.Integer(), nullable=False),
+    sa.Column('trust_score_impact', sa.Integer(), nullable=False),
+    sa.Column('ip_address', sa.String(length=45), nullable=True),
+    sa.Column('user_agent', sa.Text(), nullable=True),
+    sa.Column('country', sa.String(length=3), nullable=True),
+    sa.Column('city', sa.String(length=100), nullable=True),
+    sa.Column('occurred_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('resolved_at', postgresql.TIMESTAMP(timezone=True), nullable=True),
+    sa.Column('is_resolved', sa.Boolean(), nullable=False),
+    sa.Column('resolution_action', sa.String(length=255), nullable=True),
+    sa.ForeignKeyConstraint(['device_trust_id'], ['device_trust.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['session_id'], ['user_sessions.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
+    with op.batch_alter_table('device_security_events', schema=None) as batch_op:
+        batch_op.create_index('ix_device_security_events_category', ['event_category'], unique=False)
+        batch_op.create_index(batch_op.f('ix_device_security_events_device_trust_id'), ['device_trust_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_device_security_events_event_category'), ['event_category'], unique=False)
+        batch_op.create_index(batch_op.f('ix_device_security_events_event_type'), ['event_type'], unique=False)
+        batch_op.create_index(batch_op.f('ix_device_security_events_id'), ['id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_device_security_events_ip_address'), ['ip_address'], unique=False)
+        batch_op.create_index(batch_op.f('ix_device_security_events_occurred_at'), ['occurred_at'], unique=False)
+        batch_op.create_index(batch_op.f('ix_device_security_events_session_id'), ['session_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_device_security_events_severity'), ['severity'], unique=False)
+        batch_op.create_index('ix_device_security_events_type_severity', ['event_type', 'severity'], unique=False)
+        batch_op.create_index(batch_op.f('ix_device_security_events_user_id'), ['user_id'], unique=False)
+        batch_op.create_index('ix_device_security_events_user_occurred', ['user_id', 'occurred_at'], unique=False)
+
     op.create_table('blood_distributions',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('blood_product', sa.String(length=50), nullable=False),
@@ -338,6 +470,29 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_blood_distributions_id'))
 
     op.drop_table('blood_distributions')
+    with op.batch_alter_table('device_security_events', schema=None) as batch_op:
+        batch_op.drop_index('ix_device_security_events_user_occurred')
+        batch_op.drop_index(batch_op.f('ix_device_security_events_user_id'))
+        batch_op.drop_index('ix_device_security_events_type_severity')
+        batch_op.drop_index(batch_op.f('ix_device_security_events_severity'))
+        batch_op.drop_index(batch_op.f('ix_device_security_events_session_id'))
+        batch_op.drop_index(batch_op.f('ix_device_security_events_occurred_at'))
+        batch_op.drop_index(batch_op.f('ix_device_security_events_ip_address'))
+        batch_op.drop_index(batch_op.f('ix_device_security_events_id'))
+        batch_op.drop_index(batch_op.f('ix_device_security_events_event_type'))
+        batch_op.drop_index(batch_op.f('ix_device_security_events_event_category'))
+        batch_op.drop_index(batch_op.f('ix_device_security_events_device_trust_id'))
+        batch_op.drop_index('ix_device_security_events_category')
+
+    op.drop_table('device_security_events')
+    with op.batch_alter_table('device_registrations', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_device_registrations_user_id'))
+        batch_op.drop_index(batch_op.f('ix_device_registrations_registration_token'))
+        batch_op.drop_index(batch_op.f('ix_device_registrations_id'))
+        batch_op.drop_index(batch_op.f('ix_device_registrations_device_trust_id'))
+        batch_op.drop_index(batch_op.f('ix_device_registrations_device_fingerprint'))
+
+    op.drop_table('device_registrations')
     with op.batch_alter_table('blood_inventory', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_blood_inventory_id'))
 
@@ -377,6 +532,19 @@ def downgrade() -> None:
         batch_op.drop_index('ix_impersonation_active_moderator')
 
     op.drop_table('impersonation_sessions')
+    with op.batch_alter_table('device_trust', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_device_trust_user_id'))
+        batch_op.drop_index('ix_device_trust_user_fingerprint')
+        batch_op.drop_index('ix_device_trust_trust_level')
+        batch_op.drop_index('ix_device_trust_risk_score')
+        batch_op.drop_index(batch_op.f('ix_device_trust_last_seen_ip'))
+        batch_op.drop_index('ix_device_trust_last_seen')
+        batch_op.drop_index(batch_op.f('ix_device_trust_id'))
+        batch_op.drop_index(batch_op.f('ix_device_trust_first_seen_ip'))
+        batch_op.drop_index(batch_op.f('ix_device_trust_device_fingerprint_v2'))
+        batch_op.drop_index(batch_op.f('ix_device_trust_device_fingerprint'))
+
+    op.drop_table('device_trust')
     with op.batch_alter_table('blood_requests', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_blood_requests_source_facility_id'))
         batch_op.drop_index(batch_op.f('ix_blood_requests_request_group_id'))

@@ -47,7 +47,12 @@ async def create_facility(
     current_user: User = Depends(require_permission(
         "facility.manage"
     ))):
-    """Create facility with comprehensive logging"""
+    """
+        1. Create facility: A facility can only be added by the facility administrator
+        2. A facility represents an entity that can request or issue blood to another facility
+        3. It be physically located and posses officially recognized licenses from the appropriate regulating bodies
+    
+    """
     start_time = time.time()
     current_user_id = str(current_user.id)
     client_ip = get_client_ip(request)

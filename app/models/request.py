@@ -10,6 +10,7 @@ from sqlalchemy import (
     func,
     Text,
     Boolean,
+    Index,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
@@ -54,23 +55,26 @@ class BloodRequest(Base):
         nullable=False,
         index=True,
     )
-    is_master_request: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_master_request: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
 
-    blood_type: Mapped[str] = mapped_column(String(10), nullable=False)
-    blood_product: Mapped[str] = mapped_column(String(50), nullable=False)
-    quantity_requested: Mapped[int] = mapped_column(Integer, nullable=False)
+    blood_type: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
+    blood_product: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    quantity_requested: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     request_status: Mapped[RequestStatus] = mapped_column(
         Enum(RequestStatus),
         default=RequestStatus.pending,
+        index=True,
     )
     processing_status: Mapped[ProcessingStatus] = mapped_column(
         Enum(ProcessingStatus),
         default=ProcessingStatus.pending,
+        index=True,
     )
     priority: Mapped[Optional[PriorityStatus]] = mapped_column(
         Enum(PriorityStatus),
         nullable=True,
         default=PriorityStatus.not_urgent,
+        index=True,
     )
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     cancellation_reason: Mapped[Optional[str]] = mapped_column(
@@ -78,20 +82,24 @@ class BloodRequest(Base):
     )
     option: Mapped[str] = mapped_column(String(10), default="sent")
 
-    created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[DateTime] = mapped_column(
+        DateTime, server_default=func.now(), index=True
+    )
     updated_at: Mapped[DateTime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now()
+        DateTime, server_default=func.now(), onupdate=func.now(), index=True
     )
 
     # --- Relationships ---
     requester_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
     )
     fulfilled_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
+        index=True,
     )
     facility_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),
@@ -221,6 +229,19 @@ class BloodRequest(Base):
 
     def __repr__(self) -> str:
         return f"<BloodRequest(id={self.id}, requester_id={self.requester_id}, status={self.request_status}, group_id={self.request_group_id})>"
+
+    # --- Table Configuration for Performance ---
+    __table_args__ = (
+        # Composite indexes for common hospital blood request queries
+        Index("idx_request_facility_status", "facility_id", "request_status"),
+        Index("idx_request_source_status", "source_facility_id", "request_status"),
+        Index("idx_request_blood_urgent", "blood_type", "priority", "request_status"),
+        Index("idx_request_created_status", "created_at", "request_status"),
+        Index("idx_request_group_master", "request_group_id", "is_master_request"),
+        Index("idx_request_requester_date", "requester_id", "created_at"),
+        Index("idx_request_product_facility", "blood_product", "facility_id"),
+        Index("idx_request_processing_priority", "processing_status", "priority"),
+    )
 
 
 class DashboardDailySummary(Base):

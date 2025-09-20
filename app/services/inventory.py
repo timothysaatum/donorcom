@@ -43,10 +43,8 @@ class BloodInventoryService:
         ) -> BloodInventory:
 
         """Create a new blood unit inventory entry"""
-        # expiry_date = date.today() + timedelta(days=blood_data.expires_in_days)
         new_blood_unit = BloodInventory(
-            **blood_data.model_dump(),#exclude={"expires_in_days"}),
-            # expiry_date=expiry_date,
+            **blood_data.model_dump(),
             blood_bank_id=blood_bank_id,
             added_by_id=added_by_id
         )
@@ -94,47 +92,6 @@ class BloodInventoryService:
         if exclude_user_blood_bank_id:
             base_conditions.append(BloodBank.id != exclude_user_blood_bank_id)
 
-        # DEBUG: First, let's check if there are any blood inventory records at all
-        debug_total_inventory = await self.db.execute(
-            select(func.count(BloodInventory.id))
-        )
-        total_inventory_count = debug_total_inventory.scalar()
-        print(f"DEBUG: Total blood inventory records: {total_inventory_count}")
-
-        # DEBUG: Check available (non-expired, quantity > 0) inventory
-        debug_available_inventory = await self.db.execute(
-            select(func.count(BloodInventory.id))
-            .where(
-                BloodInventory.quantity > 0,
-                BloodInventory.expiry_date >= datetime.now().date()
-            )
-        )
-        available_inventory_count = debug_available_inventory.scalar()
-        print(f"DEBUG: Available blood inventory records: {available_inventory_count}")
-
-        # DEBUG: Check facilities with blood banks
-        debug_facilities_with_banks = await self.db.execute(
-            select(func.count(distinct(Facility.id)))
-            .select_from(Facility)
-            .join(BloodBank, Facility.id == BloodBank.facility_id)
-        )
-        facilities_with_banks_count = debug_facilities_with_banks.scalar()
-        print(f"DEBUG: Facilities with blood banks: {facilities_with_banks_count}")
-
-        # DEBUG: Check the full join before filtering
-        debug_full_join = await self.db.execute(
-            select(func.count(distinct(Facility.id)))
-            .select_from(Facility)
-            .join(BloodBank, Facility.id == BloodBank.facility_id)
-            .join(BloodInventory, BloodBank.id == BloodInventory.blood_bank_id)
-            .where(
-                BloodInventory.quantity > 0,
-                BloodInventory.expiry_date >= datetime.now().date()
-            )
-        )
-        full_join_count = debug_full_join.scalar()
-        print(f"DEBUG: Facilities with available blood (before user exclusion): {full_join_count}")
-
         # Build the actual count query
         count_query = select(func.count(distinct(Facility.id)))\
             .select_from(Facility)\
@@ -145,11 +102,7 @@ class BloodInventoryService:
         # Get total count
         total_result = await self.db.execute(count_query)
         total_items = total_result.scalar()
-        print(f"DEBUG: Final filtered count: {total_items}")
-        print(f"DEBUG: User blood bank to exclude: {exclude_user_blood_bank_id}")
-        print(f"DEBUG: Blood type filter: {blood_type}")
-        print(f"DEBUG: Blood product filter: {blood_product}")
-
+        
         # If no items found, return early
         if total_items == 0:
             return PaginatedResponse(
@@ -190,7 +143,6 @@ class BloodInventoryService:
         # Execute query
         result = await self.db.execute(query)
         facilities = result.mappings().all()
-        print(f"DEBUG: Facilities returned from query: {len(facilities)}")
 
         # Calculate pagination metadata
         page_size = pagination.page_size if pagination else 20
@@ -445,7 +397,6 @@ class BloodInventoryService:
         if conditions:
             query = query.where(and_(*conditions))
 
-        # Rest of the method remains the same...
         # Apply sorting
         if pagination.sort_by:
             sort_column = getattr(BloodInventory, pagination.sort_by, None)

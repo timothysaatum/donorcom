@@ -1,22 +1,49 @@
 from pydantic import (
-    BaseModel, 
-    EmailStr, 
-    Field, 
-    field_validator, 
-    ConfigDict, 
-    ValidationInfo
+    BaseModel,
+    EmailStr,
+    Field,
+    field_validator,
+    ConfigDict,
+    ValidationInfo,
+    StringConstraints,
 )
-from typing import Optional
+from typing import Optional, Annotated
 from uuid import UUID
 from datetime import datetime
 from enum import Enum
+import re
 
 
-class UserBase(BaseModel):
+# --- Base Configuration for Performance ---
+class BaseSchema(BaseModel):
+    """Base schema"""
+
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        validate_assignment=True,
+        use_enum_values=True,
+        frozen=False,
+        extra="forbid",
+        from_attributes=True,
+    )
+
+
+class UserBase(BaseSchema):
     email: EmailStr
-    first_name: str = Field(..., min_length=3, max_length=50)
-    last_name: str = Field(..., min_length=3, max_length=50)
-    phone: Optional[str] = Field(None, min_length=10, max_length=14)
+    first_name: Annotated[
+        str, StringConstraints(min_length=2, max_length=50, strip_whitespace=True)
+    ]
+    last_name: Annotated[
+        str, StringConstraints(min_length=2, max_length=50, strip_whitespace=True)
+    ]
+    phone: Optional[
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=10, max_length=15, pattern=r"^\+?[\d\s\-\(\)]{10,15}$"
+            ),
+        ]
+    ] = None
 
 
 class UserRole(str, Enum):
@@ -26,35 +53,55 @@ class UserRole(str, Enum):
 
 
 class UserCreate(UserBase):
-    password: str = Field(..., min_length=8, max_length=100)
+    password: Annotated[str, StringConstraints(min_length=8, max_length=128)]
     password_confirm: str
-    role: UserRole = Field(default=UserRole.staff, description="User role")
-    
-    @field_validator('password_confirm')
+    role: UserRole = Field(default=UserRole.staff, description="Hospital staff role")
+
+    @field_validator("password_confirm")
+    @classmethod
     def passwords_match(cls, v: str, values: ValidationInfo) -> str:
-        if 'password' in values.data and v != values.data['password']:
-            raise ValueError('passwords do not match')
+        if "password" in values.data and v != values.data["password"]:
+            raise ValueError("passwords do not match")
         return v
-        
-    @field_validator('password')
+
+    @field_validator("password")
+    @classmethod
     def password_complexity(cls, v: str) -> str:
         if len(v) < 8:
-            raise ValueError('password must be at least 8 characters')
-        
-        if not any(c.isupper() for c in v):
-            raise ValueError('password must contain at least one uppercase letter')
-        
-        if not any(c.isdigit() for c in v):
-            raise ValueError('password must contain at least one digit')
+            raise ValueError("password must be at least 8 characters")
+
+        # Enhanced security requirements for hospital system
+        requirements = {
+            "uppercase": bool(re.search(r"[A-Z]", v)),
+            "lowercase": bool(re.search(r"[a-z]", v)),
+            "digit": bool(re.search(r"\d", v)),
+            "special": bool(re.search(r'[!@#$%^&*(),.?":{}|<>]', v)),
+        }
+
+        missing = [req for req, met in requirements.items() if not met]
+        if len(missing) > 1:
+            raise ValueError(f'Password must contain: {", ".join(missing)}')
+
         return v
 
 
-class UserUpdate(BaseModel):
+class UserUpdate(BaseSchema):
     email: Optional[EmailStr] = None
-    first_name: Optional[str] = Field(None, min_length=3, max_length=50)
-    last_name: Optional[str] = Field(None, min_length=3, max_length=50)
-    phone: Optional[str] = Field(None, min_length=10, max_length=14)
-    role: Optional[UserRole] = Field(None, description="User role")
+    first_name: Optional[
+        Annotated[str, StringConstraints(min_length=2, max_length=50)]
+    ] = None
+    last_name: Optional[
+        Annotated[str, StringConstraints(min_length=2, max_length=50)]
+    ] = None
+    phone: Optional[
+        Annotated[
+            str,
+            StringConstraints(
+                min_length=10, max_length=15, pattern=r"^\+?[\d\s\-\(\)]{10,15}$"
+            ),
+        ]
+    ] = None
+    role: Optional[UserRole] = Field(None, description="Hospital admin role")
 
 
 class UserResponse(UserBase):
@@ -64,13 +111,11 @@ class UserResponse(UserBase):
     created_at: datetime
     last_login: Optional[datetime] = None
 
-    model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
-
     @classmethod
     def from_db_user(cls, user_model):
-        """Create UserResponse from SQLAlchemy user model"""
+        """Create UserResponse from user model - optimized for hospital staff"""
         # Get the first (and only) role name
-        role_name = user_model.roles[0].name #if user_model.roles else None
+        role_name = user_model.roles[0].name if user_model.roles else "staff"
 
         return cls(
             id=user_model.id,
@@ -81,11 +126,11 @@ class UserResponse(UserBase):
             role=UserRole(role_name),
             is_active=user_model.is_active,
             created_at=user_model.created_at,
-            last_login=user_model.last_login
+            last_login=user_model.last_login,
         )
 
 
-class BloodBankResponse(BaseModel):
+class BloodBankResponse(BaseSchema):
     id: UUID
     phone: str
     email: str
@@ -93,10 +138,8 @@ class BloodBankResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
 
-
-class FacilityResponse(BaseModel):
+class FacilityResponse(BaseSchema):
     id: UUID
     facility_name: str
     facility_email: str
@@ -118,7 +161,7 @@ class UserWithFacility(BaseModel):
     is_active: bool
     created_at: datetime
     last_login: Optional[datetime] = None
-    
+
     # For facility administrators - the facility they manage
     facility: Optional[FacilityResponse] = None
     # For staff and lab managers - the facility they work at
@@ -131,7 +174,7 @@ class UserWithFacility(BaseModel):
         """Create UserWithFacility from SQLAlchemy user model"""
         # Get the first (and only) role name
         role_name = user_model.roles[0].name if user_model.roles else "staff"
-        
+
         return cls(
             id=user_model.id,
             first_name=user_model.first_name,
@@ -143,26 +186,26 @@ class UserWithFacility(BaseModel):
             created_at=user_model.created_at,
             last_login=user_model.last_login,
             facility=user_model.facility,
-            work_facility=user_model.work_facility
+            work_facility=user_model.work_facility,
         )
 
     def model_dump(self, **kwargs):
         """Override model_dump to create a clean response structure"""
         data = super().model_dump(**kwargs)
-        
+
         # For facility administrators, use the facility they manage
         if self.role == UserRole.facility_administrator and self.facility:
-            data['facility'] = self.facility
+            data["facility"] = self.facility
         # For staff/lab managers, use the facility they work at
         elif self.role in [UserRole.staff, UserRole.lab_manager] and self.work_facility:
-            data['facility'] = self.work_facility
+            data["facility"] = self.work_facility
         else:
             # If no facility is found, set to None
-            data['facility'] = None
-        
+            data["facility"] = None
+
         # Remove work_facility from response to avoid confusion
-        data.pop('work_facility', None)
-        
+        data.pop("work_facility", None)
+
         return data
 
 
@@ -179,5 +222,6 @@ class LoginSchema(BaseModel):
 # Utility schema for role assignment
 class ChangeUserRoleRequest(BaseModel):
     """Schema for changing a user's role"""
+
     user_id: UUID
     role: UserRole
