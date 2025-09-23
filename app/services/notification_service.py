@@ -10,7 +10,6 @@ from app.models.request import BloodRequest
 from app.models.user import User
 from app.models.health_facility import Facility
 import logging
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -30,15 +29,6 @@ class NotificationService:
             facility_ids: List of facility IDs that received the request
         """
         try:
-            # Get facility managers
-            # result = await self.db.execute(
-            #     select(User, Facility)
-            #     .join(Facility, User.id == Facility.facility_manager_id)
-            #     .where(Facility.id.in_(facility_ids))
-            # )
-            
-            # facility_managers = result.fetchall()
-            
             # Get request details
             request_result = await self.db.execute(
                 select(BloodRequest)
@@ -191,20 +181,6 @@ class NotificationService:
         - Use a message queue system
         """
         
-        # Example: Store in database (you'd need to create a Notification model)
-        # notification = Notification(
-        #     user_id=user_id,
-        #     title=title,
-        #     message=message,
-        #     notification_type=notification_type,
-        #     related_request_id=related_request_id,
-        #     created_at=datetime.utcnow(),
-        #     is_read=False
-        # )
-        # self.db.add(notification)
-        # await self.db.commit()
-        
-        # For now, just log the notification
         logger.info(f"NOTIFICATION - User {user_id}: {title} - {message}")
     
     async def get_user_notifications(self, user_id: UUID, limit: int = 50) -> List[dict]:

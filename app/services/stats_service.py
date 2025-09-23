@@ -128,7 +128,7 @@ class StatsService:
                 BloodDistribution.dispatched_to_id == facility_id,
                 BloodDistribution.date_delivered.is_not(None),
                 extract("year", BloodDistribution.date_delivered) == year,
-                BloodDistribution.status != "returned",  # Exclude returned blood
+                BloodDistribution.status != "RETURNED",  # Exclude returned blood
             )
         )
 
@@ -191,7 +191,7 @@ class StatsService:
                 BloodDistribution.dispatched_to_id == facility_id,
                 BloodDistribution.date_delivered.is_not(None),
                 extract("year", BloodDistribution.date_delivered) == year,
-                BloodDistribution.status != "returned",
+                BloodDistribution.status != "RETURNED",
             )
         )
 
@@ -244,7 +244,7 @@ class StatsService:
                     BloodDistribution.dispatched_to_id == facility_id,
                     BloodDistribution.date_delivered.is_not(None),
                     func.date(BloodDistribution.date_delivered) >= start_date,
-                    BloodDistribution.status != "returned",
+                    BloodDistribution.status != "RETURNED",
                 )
             )
             .group_by(func.date(BloodDistribution.date_delivered))
@@ -432,7 +432,7 @@ class StatsService:
             BloodDistribution.date_delivered.is_not(None),
             BloodDistribution.date_delivered >= from_date,
             BloodDistribution.date_delivered <= to_date,
-            BloodDistribution.status.in_(["delivered", "dispatched"]),
+            BloodDistribution.status.in_(["DELIVERED", "DISPATCHED"]),
         ]
 
         if db_product_names:

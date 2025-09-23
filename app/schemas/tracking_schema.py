@@ -4,12 +4,12 @@ from datetime import datetime
 from enum import Enum
 
 class TrackStateStatus(str, Enum):
-    dispatched = "dispatched"
-    pending_receive = "pending receive"
-    received = "received"
-    returned = "returned"
-    rejected = "rejected"
-    cancelled = "cancelled"
+    DISPATCHED = "dispatched"
+    PENDING_RECEIVE = "pending receive"
+    RECEIVED = "received"
+    RETURNED = "returned"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
 
 
 class TrackStateBase(BaseModel):

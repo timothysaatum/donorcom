@@ -5,11 +5,11 @@ from enum import Enum
 
 
 class DistributionStatus(str, Enum):
-    pending_receive = "pending receive"
-    in_transit = "in transit"
-    delivered = "delivered"
-    cancelled = "cancelled"
-    returned = "returned"
+    PENDING_RECEIVE = "pending receive"
+    IN_TRANSIT = "in transit"
+    DELIVERED = "delivered"
+    CANCELLED = "cancelled"
+    RETURNED = "returned"
 
 
 class BloodDistributionBase(BaseModel):

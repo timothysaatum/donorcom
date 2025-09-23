@@ -6,8 +6,6 @@ from fastapi import HTTPException
 from uuid import UUID
 from datetime import datetime, timedelta
 from typing import Optional, List
-import random
-import string
 from app.models.distribution import BloodDistribution
 from app.models.inventory import BloodInventory
 from app.schemas.distribution import (
@@ -19,35 +17,8 @@ from app.schemas.distribution import (
 from app.models.tracking_model import TrackState
 from app.schemas.tracking_schema import TrackStateStatus
 from app.schemas.request import ProcessingStatus
+from app.utils.generators import calculate_expiry_date, generate_batch_number, generate_tracking_number
 
-
-def generate_tracking_number(length=12):
-    return "".join(random.choices(string.ascii_uppercase + string.digits, k=length))
-
-
-def generate_batch_number():
-    """Generate a unique batch number in format YYYYMMDD-XXXX"""
-    date_part = datetime.now().strftime("%Y%m%d")
-    random_part = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
-    return f"{date_part}-{random_part}"
-
-
-def calculate_expiry_date(blood_product: str) -> datetime.date:
-    """Calculate expiry date based on blood product type"""
-    # Standard shelf life for different blood products (in days)
-    shelf_life_days = {
-        "whole blood": 35,
-        "red blood cells": 42,
-        "packed red blood cells": 42,
-        "platelets": 5,
-        "plasma": 365,
-        "fresh frozen plasma": 365,
-        "cryoprecipitate": 365,
-    }
-
-    # Default to 35 days if product type not found
-    days = shelf_life_days.get(blood_product.lower(), 35)
-    return (datetime.now() + timedelta(days=days)).date()
 
 
 class BloodDistributionService:
@@ -138,7 +109,7 @@ class BloodDistributionService:
         track_state = TrackState(
             blood_distribution_id=new_distribution.id,
             blood_request_id=new_distribution.request_id,  # Use request_id instead of blood_product_id
-            status=TrackStateStatus.pending_receive,
+            status=TrackStateStatus.PENDING_RECEIVE,
             location=new_distribution.dispatched_from.blood_bank_name,
             notes="Distribution created, awaiting dispatch",
             created_by_id=created_by_id,
@@ -204,16 +175,16 @@ class BloodDistributionService:
 
             # Auto-update date_dispatched when status changes to in_transit (only if not provided)
             if (
-                new_status == DistributionStatus.in_transit
-                and old_status == DistributionStatus.pending_receive
+                new_status == DistributionStatus.IN_TRANSIT
+                and old_status == DistributionStatus.PENDING_RECEIVE
                 and "date_dispatched" not in update_dict
             ):
                 distribution.date_dispatched = datetime.now()
 
             # Auto-update date_delivered when status changes to delivered (only if not provided)
             if (
-                new_status == DistributionStatus.delivered
-                and old_status != DistributionStatus.delivered
+                new_status == DistributionStatus.DELIVERED
+                and old_status != DistributionStatus.DELIVERED
                 and "date_delivered" not in update_dict
             ):
                 distribution.date_delivered = datetime.now()
@@ -224,7 +195,7 @@ class BloodDistributionService:
 
             # Handle returns - add back to inventory if marked as returned
             if (
-                new_status == DistributionStatus.returned
+                new_status == DistributionStatus.RETURNED
                 and distribution.blood_product_id
             ):
                 inventory_result = await self.db.execute(
@@ -244,8 +215,7 @@ class BloodDistributionService:
                         quantity=distribution.quantity,
                         blood_bank_id=distribution.dispatched_from_id,
                         added_by_id=distribution.created_by_id,
-                        # Set a reasonable expiry date
-                        expiry_date=(datetime.now() + timedelta(days=30)).date(),
+                        expiry_date=distribution.expiry_date
                     )
                     self.db.add(new_inventory)
 
@@ -258,28 +228,25 @@ class BloodDistributionService:
         for field, value in update_dict.items():
             if field != "status":  # Skip status as it's already updated
                 setattr(distribution, field, value)
-
-        # await self.db.commit()
-        # await self.db.refresh(distribution)
-
+        # Map distribution status to track state status
         status_mapping = {
-            "pending receive": TrackStateStatus.pending_receive,
-            "in transit": TrackStateStatus.dispatched,
-            "delivered": TrackStateStatus.received,
-            "returned": TrackStateStatus.returned,
-            "cancelled": TrackStateStatus.cancelled,
+            "pending receive": TrackStateStatus.PENDING_RECEIVE,
+            "in transit": TrackStateStatus.DISPATCHED,
+            "delivered": TrackStateStatus.RECEIVED,
+            "returned": TrackStateStatus.RETURNED,
+            "cancelled": TrackStateStatus.CANCELLED,
         }
 
         track_state = None
         if old_status != distribution.status:
             mapped_status = status_mapping.get(
-                distribution.status.value, TrackStateStatus.pending_receive
+                distribution.status.value, TrackStateStatus.PENDING_RECEIVE
             )
 
             # Choose location based on status
             if mapped_status in [
-                TrackStateStatus.pending_receive,
-                TrackStateStatus.dispatched,
+                TrackStateStatus.PENDING_RECEIVE,
+                TrackStateStatus.DISPATCHED,
             ]:
                 location = (
                     distribution.dispatched_from.blood_bank_name
@@ -316,7 +283,7 @@ class BloodDistributionService:
             raise HTTPException(status_code=404, detail="Distribution not found")
 
         # Only allow deletion of pending distributions
-        if distribution.status != DistributionStatus.pending_receive:
+        if distribution.status != DistributionStatus.PENDING_RECEIVE:
             raise HTTPException(
                 status_code=400,
                 detail=f"Cannot delete distribution with status: {distribution.status.value}. Only pending distributions can be deleted.",
@@ -439,18 +406,18 @@ class BloodDistributionService:
         query = select(
             func.count().label("total"),
             func.sum(
-                BloodDistribution.status == DistributionStatus.pending_receive
+                BloodDistribution.status == DistributionStatus.PENDING_RECEIVE
             ).label("pending"),
-            func.sum(BloodDistribution.status == DistributionStatus.in_transit).label(
+            func.sum(BloodDistribution.status == DistributionStatus.IN_TRANSIT).label(
                 "in_transit"
             ),
-            func.sum(BloodDistribution.status == DistributionStatus.delivered).label(
+            func.sum(BloodDistribution.status == DistributionStatus.DELIVERED).label(
                 "delivered"
             ),
-            func.sum(BloodDistribution.status == DistributionStatus.cancelled).label(
+            func.sum(BloodDistribution.status == DistributionStatus.CANCELLED).label(
                 "cancelled"
             ),
-            func.sum(BloodDistribution.status == DistributionStatus.returned).label(
+            func.sum(BloodDistribution.status == DistributionStatus.RETURNED).label(
                 "returned"
             ),
         )
@@ -513,8 +480,8 @@ class BloodDistributionService:
                     BloodDistribution.expiry_date <= cutoff_date,
                     BloodDistribution.status.in_(
                         [
-                            DistributionStatus.pending_receive,
-                            DistributionStatus.in_transit,
+                            DistributionStatus.PENDING_RECEIVE,
+                            DistributionStatus.IN_TRANSIT,
                         ]
                     ),
                 )
@@ -549,17 +516,17 @@ class BloodDistributionService:
         # Determine the new processing status based on distribution status
         old_status = blood_request.processing_status
 
-        if distribution.status == DistributionStatus.pending_receive:
-            new_status = ProcessingStatus.initiated
-        elif distribution.status == DistributionStatus.in_transit:
-            new_status = ProcessingStatus.dispatched
-        elif distribution.status == DistributionStatus.delivered:
-            new_status = ProcessingStatus.completed
+        if distribution.status == DistributionStatus.PENDING_RECEIVE:
+            new_status = ProcessingStatus.INITIATED
+        elif distribution.status == DistributionStatus.IN_TRANSIT:
+            new_status = ProcessingStatus.DISPATCHED
+        elif distribution.status == DistributionStatus.DELIVERED:
+            new_status = ProcessingStatus.COMPLETED
         elif distribution.status in [
-            DistributionStatus.cancelled,
-            DistributionStatus.returned,
+            DistributionStatus.CANCELLED,
+            DistributionStatus.RETURNED,
         ]:
-            new_status = ProcessingStatus.pending
+            new_status = ProcessingStatus.PENDING
         else:
             return  # No status change needed
 
@@ -585,9 +552,9 @@ class BloodDistributionService:
     def _map_processing_to_track_status(self, processing_status):
         """Map processing status to track state status."""
         mapping = {
-            ProcessingStatus.pending: TrackStateStatus.pending_receive,
-            ProcessingStatus.initiated: TrackStateStatus.pending_receive,
-            ProcessingStatus.dispatched: TrackStateStatus.dispatched,
-            ProcessingStatus.completed: TrackStateStatus.received,
+            ProcessingStatus.PENDING: TrackStateStatus.PENDING_RECEIVE,
+            ProcessingStatus.INITIATED: TrackStateStatus.PENDING_RECEIVE,
+            ProcessingStatus.DISPATCHED: TrackStateStatus.DISPATCHED,
+            ProcessingStatus.COMPLETED: TrackStateStatus.RECEIVED,
         }
-        return mapping.get(processing_status, TrackStateStatus.pending_receive)
+        return mapping.get(processing_status, TrackStateStatus.PENDING_RECEIVE)

@@ -24,7 +24,7 @@ class BloodDistribution(Base):
     status: Mapped[DistributionStatus] = mapped_column(
         Enum(DistributionStatus, name="distribution_status"),
         nullable=False,
-        default=DistributionStatus.pending_receive,
+        default=DistributionStatus.PENDING_RECEIVE,
     )
 
     date_dispatched: Mapped[Optional[DateTime]] = mapped_column(DateTime, nullable=True)
@@ -165,7 +165,7 @@ class BloodDistribution(Base):
                 return value
 
         # Only validate if status is not delivered
-        if self.status != DistributionStatus.delivered:
+        if self.status != DistributionStatus.DELIVERED:
             raise ValueError(
                 "date_delivered can only be set when status is 'delivered'"
             )
@@ -191,8 +191,8 @@ class BloodDistribution(Base):
 
         # Only validate if status doesn't allow dispatched date
         if self.status not in [
-            DistributionStatus.in_transit,
-            DistributionStatus.delivered,
+            DistributionStatus.IN_TRANSIT,
+            DistributionStatus.DELIVERED,
         ]:
             raise ValueError(
                 "date_dispatched can only be set when status is 'in_transit' or 'delivered'"
@@ -204,25 +204,25 @@ class BloodDistribution(Base):
         """Validate status transitions and sync with related request if applicable."""
         # Define valid status transitions
         valid_transitions = {
-            DistributionStatus.pending_receive: [
-                DistributionStatus.pending_receive,  # Allow same status
-                DistributionStatus.in_transit,
-                DistributionStatus.cancelled,
+            DistributionStatus.PENDING_RECEIVE: [
+                DistributionStatus.PENDING_RECEIVE,  # Allow same status
+                DistributionStatus.IN_TRANSIT,
+                DistributionStatus.CANCELLED,
             ],
-            DistributionStatus.in_transit: [
-                DistributionStatus.in_transit,  # Allow same status
-                DistributionStatus.delivered,
-                DistributionStatus.returned,
+            DistributionStatus.IN_TRANSIT: [
+                DistributionStatus.IN_TRANSIT,  # Allow same status
+                DistributionStatus.DELIVERED,
+                DistributionStatus.RETURNED,
             ],
-            DistributionStatus.delivered: [
-                DistributionStatus.delivered,  # Allow same status
-                DistributionStatus.returned,
+            DistributionStatus.DELIVERED: [
+                DistributionStatus.DELIVERED,  # Allow same status
+                DistributionStatus.RETURNED,
             ],
-            DistributionStatus.cancelled: [
-                DistributionStatus.cancelled,  # Allow same status
+            DistributionStatus.CANCELLED: [
+                DistributionStatus.CANCELLED,  # Allow same status
             ],  # Terminal state
-            DistributionStatus.returned: [
-                DistributionStatus.returned,  # Allow same status
+            DistributionStatus.RETURNED: [
+                DistributionStatus.RETURNED,  # Allow same status
             ],  # Terminal state
         }
 
@@ -246,11 +246,11 @@ class BloodDistribution(Base):
 
         # Professional tracking status mapping
         status_mapping = {
-            DistributionStatus.pending_receive: ProcessingStatus.initiated,  # Distribution created -> initiated
-            DistributionStatus.in_transit: ProcessingStatus.dispatched,  # In transit -> dispatched
-            DistributionStatus.delivered: ProcessingStatus.completed,  # Delivered -> completed
-            DistributionStatus.cancelled: ProcessingStatus.pending,  # Reset to pending for retry
-            DistributionStatus.returned: ProcessingStatus.pending,  # Reset to pending for retry
+            DistributionStatus.PENDING_RECEIVE: ProcessingStatus.initiated,  # Distribution created -> initiated
+            DistributionStatus.IN_TRANSIT: ProcessingStatus.dispatched,  # In transit -> dispatched
+            DistributionStatus.DELIVERED: ProcessingStatus.completed,  # Delivered -> completed
+            DistributionStatus.CANCELLED: ProcessingStatus.pending,  # Reset to pending for retry
+            DistributionStatus.RETURNED: ProcessingStatus.pending,  # Reset to pending for retry
         }
 
         new_processing_status = status_mapping.get(self.status)

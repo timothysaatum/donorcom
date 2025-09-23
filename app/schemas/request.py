@@ -4,7 +4,6 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional, Annotated
 import logging
-import re
 
 logger = logging.getLogger(__name__)
 
@@ -25,29 +24,29 @@ class BaseSchema(BaseModel):
 
 class ProcessingStatus(str, Enum):
 
-    pending = "pending"
-    initiated = "initiated"
-    dispatched = "dispatched"
-    completed = "completed"
+    PENDING = "pending"
+    INITIATED = "initiated"
+    DISPATCHED = "dispatched"
+    COMPLETED = "completed"
 
 
 class PriorityStatus(str, Enum):
 
-    urgent = "urgent"
-    not_urgent = "not_urgent"
+    URGENT = "urgent"
+    NOT_URGENT = "not_urgent"
 
     @classmethod
     def _missing_(cls, value):
         if value == "not-urgent":
-            return cls.not_urgent
+            return cls.NOT_URGENT
 
 
 class RequestStatus(str, Enum):
 
-    pending = "pending"
-    accepted = "accepted"
-    rejected = "rejected"
-    cancelled = "cancelled"
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
 
 
 class RequestDirection(str, Enum):

@@ -22,6 +22,7 @@ from app.schemas.inventory import PaginatedResponse
 from app.utils.notification_util import notify
 import logging
 from app.utils.performance_monitor import performance_monitor
+
 logger = logging.getLogger(__name__)
 
 
@@ -102,12 +103,12 @@ class BloodRequestService:
                 func.count(BloodRequest.id).label("total_sent"),
                 func.count(
                     func.nullif(
-                        BloodRequest.request_status == RequestStatus.accepted, False
+                        BloodRequest.request_status == RequestStatus.ACCEPTED, False
                     )
                 ).label("accepted_sent"),
                 func.count(
                     func.nullif(
-                        BloodRequest.request_status == RequestStatus.pending, False
+                        BloodRequest.request_status == RequestStatus.PENDING, False
                     )
                 ).label("pending_sent"),
             ).where(BloodRequest.source_facility_id == facility_id)
@@ -120,12 +121,12 @@ class BloodRequestService:
                 func.count(BloodRequest.id).label("total_received"),
                 func.count(
                     func.nullif(
-                        BloodRequest.request_status == RequestStatus.accepted, False
+                        BloodRequest.request_status == RequestStatus.ACCEPTED, False
                     )
                 ).label("accepted_received"),
                 func.count(
                     func.nullif(
-                        BloodRequest.request_status == RequestStatus.pending, False
+                        BloodRequest.request_status == RequestStatus.PENDING, False
                     )
                 ).label("pending_received"),
             ).where(BloodRequest.facility_id == facility_id)
@@ -150,7 +151,7 @@ class BloodRequestService:
         self, option: str, facility_id: UUID, user_id: UUID
     ) -> Optional[Any]:
         """Build query conditions efficiently"""
-        not_cancelled = BloodRequest.request_status != RequestStatus.cancelled
+        not_cancelled = BloodRequest.request_status != RequestStatus.CANCELLED
         if option == "received":
             return and_(
                 BloodRequest.facility_id == facility_id,
@@ -344,7 +345,7 @@ class BloodRequestService:
                     blood_product=data.blood_product,
                     quantity_requested=data.quantity_requested,
                     notes=data.notes,
-                    request_status=RequestStatus.pending,
+                    request_status=RequestStatus.PENDING,
                     priority=data.priority,
                 )
                 self.db.add(new_request)
@@ -353,7 +354,7 @@ class BloodRequestService:
                 # Create initial track state
                 track_state = TrackState(
                     blood_request_id=new_request.id,
-                    status=TrackStateStatus.pending_receive,
+                    status=TrackStateStatus.PENDING_RECEIVE,
                     location=facility_map[facility_id],
                     notes="Request created, awaiting processing",
                     created_by_id=requester_id,
@@ -490,9 +491,9 @@ class BloodRequestService:
         unique_facilities.add(r.facility_id)
 
         # Convert ORM objects to response models
-        master_request_response = BloodRequestResponse.from_orm(master_request)
+        master_request_response = BloodRequestResponse.model_validate(master_request)
         related_requests_response = [
-            BloodRequestResponse.from_orm(r) for r in related_requests
+            BloodRequestResponse.model_validate(r) for r in related_requests
         ]
 
         return BloodRequestGroupResponse(
@@ -540,15 +541,15 @@ class BloodRequestService:
             if old_status != new_status:
                 # Map request status to TrackStateStatus safely
                 status_mapping = {
-                    "pending": TrackStateStatus.pending_receive,
-                    "accepted": TrackStateStatus.dispatched,
-                    "fulfilled": TrackStateStatus.received,
-                    "returned": TrackStateStatus.returned,
-                    "rejected": TrackStateStatus.rejected,
-                    "cancelled": TrackStateStatus.cancelled,
+                    "pending": TrackStateStatus.PENDING_RECEIVE,
+                    "accepted": TrackStateStatus.DISPATCHED,
+                    "fulfilled": TrackStateStatus.FULFILLED,
+                    "returned": TrackStateStatus.RETURNED,
+                    "rejected": TrackStateStatus.REJECTED,
+                    "cancelled": TrackStateStatus.CANCELLED,
                 }
                 mapped_status = status_mapping.get(
-                    new_status.value, TrackStateStatus.pending_receive
+                    new_status.value, TrackStateStatus.PENDING_RECEIVE
                 )
 
                 track_state = TrackState(
@@ -575,8 +576,8 @@ class BloodRequestService:
 
             # Handle intelligent cancellation if request is accepted
             if (
-                old_status == RequestStatus.pending
-                and new_status == RequestStatus.accepted
+                old_status == RequestStatus.PENDING
+                and new_status == RequestStatus.ACCEPTED
             ):
                 cancelled_count = await self._cancel_related_requests(
                     request.request_group_id, request.id
@@ -603,7 +604,7 @@ class BloodRequestService:
                     BloodRequest.request_group_id == request_group_id,
                     BloodRequest.id != exclude_request_id,
                     BloodRequest.request_status.in_(
-                        [RequestStatus.pending, RequestStatus.accepted]
+                        [RequestStatus.PENDING, RequestStatus.ACCEPTED]
                     ),
                 )
             )
@@ -627,12 +628,12 @@ class BloodRequestService:
                         BloodRequest.request_group_id == request_group_id,
                         BloodRequest.id != exclude_request_id,
                         BloodRequest.request_status.in_(
-                            [RequestStatus.pending, RequestStatus.accepted]
+                            [RequestStatus.PENDING, RequestStatus.ACCEPTED]
                         ),
                     )
                 )
                 .values(
-                    request_status=RequestStatus.cancelled,
+                    request_status=RequestStatus.CANCELLED,
                     cancellation_reason="Automatically cancelled - request fulfilled by another facility",
                     updated_at=func.now(),
                 )
@@ -665,8 +666,8 @@ class BloodRequestService:
             raise HTTPException(status_code=404, detail="Blood request not found")
 
         if request.request_status not in [
-            RequestStatus.pending,
-            RequestStatus.cancelled,
+            RequestStatus.PENDING,
+            RequestStatus.CANCELLED,
         ]:
             raise HTTPException(
                 status_code=400,
@@ -723,9 +724,7 @@ class BloodRequestService:
             group_id = request.request_group_id
             if group_id not in groups_dict:
                 groups_dict[group_id] = []
-            groups_dict[group_id].append(
-                request
-            )
+            groups_dict[group_id].append(request)
 
         # Convert to group responses
         groups = []
@@ -770,9 +769,11 @@ class BloodRequestService:
                 unique_facilities.add(r.facility_id)
 
             # Convert ORM objects to response models
-            master_request_response = BloodRequestResponse.from_orm(master_request)
+            master_request_response = BloodRequestResponse.model_validate(
+                master_request
+            )
             related_requests_response = [
-                BloodRequestResponse.from_orm(r) for r in related_requests
+                BloodRequestResponse.model_validate(r) for r in related_requests
             ]
 
             group_response = BloodRequestGroupResponse(
@@ -942,14 +943,14 @@ class BloodRequestService:
         return {
             "total_request_groups": len(all_groups),
             "total_individual_requests": len(requests),
-            "pending_groups": len(groups_by_status.get(RequestStatus.pending, set())),
-            "approved_groups": len(groups_by_status.get(RequestStatus.accepted, set())),
+            "pending_groups": len(groups_by_status.get(RequestStatus.PENDING, set())),
+            "approved_groups": len(groups_by_status.get(RequestStatus.ACCEPTED, set())),
             "fulfilled_groups": len(
-                groups_by_status.get(ProcessingStatus.completed, set())
+                groups_by_status.get(ProcessingStatus.COMPLETED, set())
             ),
-            "rejected_groups": len(groups_by_status.get(RequestStatus.rejected, set())),
+            "rejected_groups": len(groups_by_status.get(RequestStatus.REJECTED, set())),
             "cancelled_groups": len(
-                groups_by_status.get(RequestStatus.cancelled, set())
+                groups_by_status.get(RequestStatus.CANCELLED, set())
             ),
         }
 
@@ -968,7 +969,7 @@ class BloodRequestService:
             raise HTTPException(status_code=404, detail="Blood request not found")
 
         # Check if request can be cancelled (only pending requests)
-        if request.request_status != RequestStatus.pending:
+        if request.request_status != RequestStatus.PENDING:
             raise HTTPException(
                 status_code=400,
                 detail=f"Cannot cancel request with status '{request.request_status.value}'. Only pending requests can be cancelled.",
@@ -984,7 +985,7 @@ class BloodRequestService:
 
         try:
             # Update request status
-            request.request_status = RequestStatus.cancelled
+            request.request_status = RequestStatus.CANCELLED
             request.cancellation_reason = (
                 cancellation_reason or "Cancelled by requester"
             )
@@ -996,7 +997,7 @@ class BloodRequestService:
             # Create track state for cancellation
             track_state = TrackState(
                 blood_request_id=request.id,
-                status=TrackStateStatus.cancelled,
+                status=TrackStateStatus.CANCELLED,
                 location=(
                     request.target_facility.facility_name
                     if request.target_facility

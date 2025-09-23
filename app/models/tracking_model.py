@@ -9,12 +9,12 @@ from datetime import datetime, timezone
 
 
 class TrackStateStatus(PyEnum):
-    dispatched = "dispatched"
-    received = "received"
-    returned = "returned"
-    rejected = "rejected"
-    cancelled = "cancelled"
-    pending_receive = "pending receive"
+    DISPATCHED = "dispatched"
+    RECEIVED = "received"
+    RETURNED = "returned"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+    PENDING_RECEIVE = "pending receive"
 
 
 class TrackState(Base):

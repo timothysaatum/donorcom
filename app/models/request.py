@@ -16,26 +16,7 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 from app.db.base import Base
 from app.schemas.distribution import DistributionStatus
-import enum
-
-
-class ProcessingStatus(str, enum.Enum):
-    pending = "pending"
-    initiated = "initiated"
-    dispatched = "dispatched"
-    completed = "completed"
-
-
-class RequestStatus(str, enum.Enum):
-    pending = "pending"
-    accepted = "accepted"
-    rejected = "rejected"
-    cancelled = "cancelled"
-
-
-class PriorityStatus(str, enum.Enum):
-    urgent = "urgent"
-    not_urgent = "not urgent"
+from app.schemas.request import PriorityStatus, ProcessingStatus, RequestStatus
 
 
 class BloodRequest(Base):
@@ -62,18 +43,18 @@ class BloodRequest(Base):
     quantity_requested: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     request_status: Mapped[RequestStatus] = mapped_column(
         Enum(RequestStatus),
-        default=RequestStatus.pending,
+        default=RequestStatus.PENDING,
         index=True,
     )
     processing_status: Mapped[ProcessingStatus] = mapped_column(
         Enum(ProcessingStatus),
-        default=ProcessingStatus.pending,
+        default=ProcessingStatus.PENDING,
         index=True,
     )
     priority: Mapped[Optional[PriorityStatus]] = mapped_column(
         Enum(PriorityStatus),
         nullable=True,
-        default=PriorityStatus.not_urgent,
+        default=PriorityStatus.NOT_URGENT,
         index=True,
     )
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -150,7 +131,7 @@ class BloodRequest(Base):
         """Ensure status consistency between request and processing status."""
         # If request is cancelled or rejected, processing should be reset to pending
         if key == "request_status":
-            if value in [RequestStatus.cancelled, RequestStatus.rejected]:
+            if value in [RequestStatus.CANCELLED, RequestStatus.REJECTED]:
                 # This will be handled by the caller to also update processing_status
                 pass
         return value
@@ -162,7 +143,7 @@ class BloodRequest(Base):
         return sum(
             dist.quantity
             for dist in self.distributions
-            if dist.status != DistributionStatus.cancelled
+            if dist.status != DistributionStatus.CANCELLED
         )
 
     @property
@@ -179,9 +160,9 @@ class BloodRequest(Base):
     def has_active_distributions(self) -> bool:
         """Check if there are any active (non-cancelled, non-returned) distributions."""
         active_statuses = {
-            DistributionStatus.pending_receive,
-            DistributionStatus.in_transit,
-            DistributionStatus.delivered,
+            DistributionStatus.PENDING_RECEIVE,
+            DistributionStatus.IN_TRANSIT,
+            DistributionStatus.DELIVERED,
         }
         return any(dist.status in active_statuses for dist in self.distributions)
 
@@ -198,7 +179,7 @@ class BloodRequest(Base):
         delivered_distributions = [
             dist
             for dist in self.distributions
-            if dist.status == DistributionStatus.delivered
+            if dist.status == DistributionStatus.DELIVERED
         ]
         return len(delivered_distributions) == 0
 
@@ -215,9 +196,9 @@ class BloodRequest(Base):
     def is_urgent_and_unfulfilled(self) -> bool:
         """Check if this is an urgent request that hasn't been fully fulfilled."""
         return (
-            self.priority == PriorityStatus.urgent
+            self.priority == PriorityStatus.URGENT
             and not self.is_fully_distributed
-            and self.request_status == RequestStatus.accepted
+            and self.request_status == RequestStatus.ACCEPTED
         )
 
     def days_since_request(self) -> int:

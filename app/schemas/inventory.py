@@ -8,7 +8,7 @@ from pydantic import (
 )
 from uuid import UUID
 from datetime import datetime, date
-from typing import Optional, List, Generic, TypeVar, Any, Dict, Annotated
+from typing import Optional, List, Any, Dict, Annotated
 
 from app.schemas.base_schema import BloodProduct, BloodType, SortOrder
 from app.utils.pagination import PaginatedResponse
