@@ -1,4 +1,5 @@
 import time
+from app.utils.generic_id import get_user_blood_bank_id
 from app.utils.ip_address_finder import get_client_ip
 from app.utils.logging_config import log_audit_event, log_performance_metric, log_security_event
 from fastapi import (
@@ -19,8 +20,6 @@ from app.schemas.inventory import (
     BloodInventoryBatchCreate, 
     BloodInventoryBatchUpdate,
     BloodInventoryBatchDelete, 
-    PaginationParams, 
-    PaginatedResponse, 
     BatchOperationResponse, 
     InventoryStatistics,
     BloodInventorySearchParams,
@@ -29,13 +28,12 @@ from app.schemas.inventory import (
 from app.services.inventory import BloodInventoryService
 from app.models.user import User
 from app.models.inventory import BloodInventory
-from app.models.health_facility import Facility
+from app.utils.pagination import PaginatedResponse, PaginationParams, get_pagination_params
 from app.utils.security import get_current_user
 from app.dependencies import get_db
 from uuid import UUID
 from typing import Optional, Annotated
 from sqlalchemy.future import select
-from app.models.blood_bank import BloodBank
 from datetime import datetime
 import logging
 from fastapi import Request
@@ -47,39 +45,6 @@ router = APIRouter(
     prefix="/blood-inventory",
     tags=["blood inventory"]
 )
-
-
-async def get_user_blood_bank_id(db, user_id):
-    """
-    Returns just the blood bank ID (UUID) for the user.
-    """
-    result = await db.execute(
-        select(BloodBank.id)
-        .join(Facility, BloodBank.facility_id == Facility.id)
-        .where(
-            (Facility.facility_manager_id == user_id) |
-            (Facility.id.in_(
-                select(User.work_facility_id).where(User.id == user_id)
-            )) |
-            (BloodBank.manager_id == user_id)
-        )
-    )
-    
-    return result.scalar()
-
-# Create pagination dependency
-def get_pagination_params(
-    page: Annotated[int, Query(ge=1, description="Page number (1-based)")] = 1,
-    page_size: Annotated[int, Query(ge=1, le=100, description="Items per page (max 100)")] = 20,
-    sort_by: Annotated[Optional[str], Query(description="Field to sort by")] = None,
-    sort_order: Annotated[str, Query(pattern="^(asc|desc)$", description="Sort order")] = "desc"
-) -> PaginationParams:
-    return PaginationParams(
-        page=page,
-        page_size=page_size,
-        sort_by=sort_by,
-        sort_order=sort_order
-    )
 
 
 @router.post("/", response_model=BloodInventoryResponse, status_code=status.HTTP_201_CREATED)

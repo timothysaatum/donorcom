@@ -10,7 +10,6 @@ from app.models.blood_bank import BloodBank
 from app.schemas.inventory import (
     BloodInventoryCreate, 
     BloodInventoryUpdate, 
-    PaginationParams,
     PaginatedResponse,
     FacilityWithBloodAvailability
 )
@@ -18,6 +17,8 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 import asyncio
 from contextlib import asynccontextmanager
+
+from app.utils.pagination import PaginationParams
 
 
 class BloodInventoryService:
