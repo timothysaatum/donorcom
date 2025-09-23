@@ -50,7 +50,7 @@ class UserService:
 
         verification_token = create_verification_token(
             email=user_data.email,
-            role=user_data.role.value,
+            role=user_data.role,
             facility_id=str(facility_id) if facility_id else None,
         )
 

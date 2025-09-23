@@ -15,7 +15,9 @@
 
 import asyncio
 import time
+
 # Utility imports for caching and security
+from app.schemas.base_schema import BloodProduct, BloodType
 from app.utils.cache_manager import cache_key, manual_cache_get, manual_cache_set
 from app.utils.permission_checker import require_permission
 
@@ -28,9 +30,6 @@ from datetime import date, datetime, timedelta
 # Application-specific imports
 from app.dependencies import get_db
 from app.schemas.stats_schema import (
-    # BloodProduct,
-    BloodProductType,
-    BloodType,  # Blood product type definitions
     ChartMetadata,  # Chart metadata schema
     DashboardSummaryResponse,  # Dashboard summary response model
     DistributionChartResponse,  # Distribution chart response model
@@ -151,7 +150,7 @@ async def dashboard_summary(
 
             # Retrieve dashboard summary data (today vs yesterday comparison)
             # This includes stock levels, transfers, and requests with percentage changes
-            data = await stats_service.get_dashboard_summary(facility_id)
+            stats_data = await stats_service.get_dashboard_summary(facility_id)
 
             # Calculate and log performance metrics
             execution_time = time.time() - start_time
@@ -173,22 +172,24 @@ async def dashboard_summary(
                     "facility_id": str(facility_id),
                     "execution_time_seconds": round(execution_time, 4),
                     "total_in_stock": (
-                        data.total_in_stock.value if data and data.total_in_stock else 0
+                        stats_data["stock"]["value"]
+                        if stats_data and stats_data.get("stock")
+                        else 0
                     ),
                     "total_transferred": (
-                        data.total_transferred.value
-                        if data and data.total_transferred
+                        stats_data["transferred"]["value"]
+                        if stats_data and stats_data.get("transferred")
                         else 0
                     ),
                     "total_requested": (
-                        data.total_requested.value
-                        if data and data.total_requested
+                        stats_data["requests"]["value"]
+                        if stats_data and stats_data.get("requests")
                         else 0
                     ),
                 },
             )
 
-            return data
+            return stats_data
 
         except HTTPException:
             raise
@@ -223,7 +224,7 @@ async def monthly_transfer_stats(
     year: Optional[int] = Query(
         None, description="Year to get statistics for (defaults to current year)"
     ),
-    blood_product_types: Optional[List[BloodProductType]] = Query(
+    blood_product_types: Optional[List[BloodProduct]] = Query(
         None, description="Filter by specific blood product types"
     ),
     db: AsyncSession = Depends(get_db),
@@ -686,7 +687,7 @@ async def distribution_chart(
     to_date: Optional[str] = Query(
         None, description="End date in ISO format (defaults to today)"
     ),
-    blood_products: Optional[List[BloodProductType]] = Query(
+    blood_products: Optional[List[BloodProduct]] = Query(
         None,
         description="List of blood product keys to include (e.g., whole_blood,platelets)",
     ),
@@ -842,13 +843,13 @@ async def distribution_chart(
 
             # Validate blood products
             valid_products = [
-                BloodProductType.whole_blood,
-                BloodProductType.red_blood_cells,
-                BloodProductType.platelets,
-                BloodProductType.fresh_frozen_plasma,
-                BloodProductType.cryoprecipitate,
-                BloodProductType.albumin,
-                BloodProductType.plasma,
+                BloodProduct.WHOLE_BLOOD,
+                BloodProduct.RED_BLOOD_CELLS,
+                BloodProduct.PLATELETS,
+                BloodProduct.FRESH_FROZEN_PLASMA,
+                BloodProduct.CRYOPRECIPITATE,
+                BloodProduct.ALBUMIN,
+                BloodProduct.PLASMA,
             ]
 
             if blood_products:
@@ -871,14 +872,14 @@ async def distribution_chart(
 
             # Validate blood types
             valid_blood_types = [
-                BloodType.a_positive,
-                BloodType.a_negative,
-                BloodType.b_positive,
-                BloodType.b_negative,
-                BloodType.ab_positive,
-                BloodType.ab_negative,
-                BloodType.o_positive,
-                BloodType.o_negative,
+                BloodType.A_POSITIVE,
+                BloodType.A_NEGATIVE,
+                BloodType.B_POSITIVE,
+                BloodType.B_NEGATIVE,
+                BloodType.AB_POSITIVE,
+                BloodType.AB_NEGATIVE,
+                BloodType.O_POSITIVE,
+                BloodType.O_NEGATIVE,
             ]
 
             if blood_types:
@@ -1013,7 +1014,7 @@ async def distribution_chart(
 async def get_request_chart_get(
     from_date: Optional[datetime] = Query(None, description="Start date for filtering"),
     to_date: Optional[datetime] = Query(None, description="End date for filtering"),
-    blood_products: Optional[List[BloodProductType]] = Query(
+    blood_products: Optional[List[BloodProduct]] = Query(
         None, description="Blood products to include"
     ),
     blood_types: Optional[List[BloodType]] = Query(
