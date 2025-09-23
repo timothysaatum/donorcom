@@ -36,14 +36,28 @@ class UserBase(BaseSchema):
     last_name: Annotated[
         str, StringConstraints(min_length=2, max_length=50, strip_whitespace=True)
     ]
-    phone: Optional[
-        Annotated[
-            str,
-            StringConstraints(
-                min_length=10, max_length=15, pattern=r"^\+?[\d\s\-\(\)]{10,15}$"
-            ),
-        ]
-    ] = None
+    phone: Optional[str] = None
+
+    @field_validator("phone")
+    @classmethod
+    def validate_ghana_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v.strip() == "":
+            return v
+        v = v.strip()
+        # Remove all non-digit characters except leading '+'
+        if v.startswith("+"):
+            cleaned = "+" + re.sub(r"[^\d]", "", v[1:])
+        else:
+            cleaned = re.sub(r"[^\d]", "", v)
+        # Ghana mobile numbers: +233 followed by 9 digits (first digit 2-5), or 0 followed by 9 digits (first digit 2-5)
+        # Examples: +233594438287, 0594438287
+        if re.fullmatch(r"\+233[2-5]\d{8}", cleaned) or re.fullmatch(
+            r"0[2-5]\d{8}", cleaned
+        ):
+            return cleaned
+        raise ValueError(
+            "Phone number must be a valid Ghana mobile number (e.g. +233594438287 or 0594438287)"
+        )
 
 
 class UserRole(str, Enum):
@@ -223,5 +237,7 @@ class LoginSchema(BaseModel):
 class ChangeUserRoleRequest(BaseModel):
     """Schema for changing a user's role"""
 
+    user_id: UUID
+    role: UserRole
     user_id: UUID
     role: UserRole

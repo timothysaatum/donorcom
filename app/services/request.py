@@ -237,13 +237,6 @@ class BloodRequestService:
                 source_facility_name = name if name else "Unknown Facility"
                 self._facility_name_cache[source_key] = source_facility_name
 
-        # Fast requester name resolution
-        requester_name = None
-        if request.requester:
-            first = request.requester.first_name or ""
-            last = request.requester.last_name or ""
-            if first or last:
-                requester_name = f"{first} {last}".strip()
 
         return BloodRequestResponse(
             id=request.id,
@@ -262,7 +255,7 @@ class BloodRequestService:
             priority=request.priority,
             cancellation_reason=request.cancellation_reason,
             requester_facility_name=requester_facility_name,
-            requester_name=requester_name,
+            requester_name=request.full_name,
             created_at=request.created_at,
             updated_at=request.updated_at,
         )

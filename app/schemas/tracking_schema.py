@@ -6,6 +6,7 @@ from enum import Enum
 class TrackStateStatus(str, Enum):
     DISPATCHED = "dispatched"
     PENDING_RECEIVE = "pending receive"
+    FULFILLED = "fulfilled"
     RECEIVED = "received"
     RETURNED = "returned"
     REJECTED = "rejected"
