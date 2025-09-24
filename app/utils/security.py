@@ -49,7 +49,7 @@ LOCKOUT_DURATION_MINUTES = int(os.getenv("ACCOUNT_LOCKOUT_DURATION_MINUTES"))
 
 
 class SessionManager:
-    """Enhanced session management with robust device fingerprinting"""
+    """Session management with device fingerprinting"""
 
     @staticmethod
     def normalize_header(header_value: str) -> str:
@@ -244,7 +244,7 @@ class SessionManager:
         session = UserSession(
             user_id=user_id,
             session_token=str(uuid4()),
-            device_fingerprint=device_info.get("enhanced_fingerprint"),
+            device_fingerprint=device_info.get("fingerprint"),
             user_agent=device_info.get("user_agent"),
             user_agent_hash=hashlib.sha256(
                 device_info.get("user_agent", "").encode()
@@ -410,16 +410,9 @@ class SessionManager:
         )
         normalized_encoding = SessionManager.normalize_header(accept_encoding)
 
-        # Create multiple fingerprint levels for flexibility
-
-        # 1. Basic fingerprint (compatible with your original)
-        basic_fingerprint_data = f"{user_agent}|{accept_language}|{accept_encoding}"
-        basic_fingerprint = hashlib.sha256(basic_fingerprint_data.encode()).hexdigest()[
-            :32
-        ]
-
-        # 2. Enhanced fingerprint (more stable components)
-        stable_components = [
+        
+        # Fingerprint device (more stable components)
+        components = [
             parsed_ua.get("browser", ""),
             parsed_ua.get("os", ""),
             normalized_language,
@@ -431,13 +424,13 @@ class SessionManager:
             ),
         ]
 
-        enhanced_fingerprint_data = "|".join(filter(None, stable_components))
-        enhanced_fingerprint = hashlib.sha256(
-            enhanced_fingerprint_data.encode("utf-8")
+        fingerprint_data = "|".join(filter(None, components))
+        fingerprint = hashlib.sha256(
+            fingerprint_data.encode("utf-8")
         ).hexdigest()[:32]
 
         # 3. Security fingerprint (includes security headers)
-        security_components = stable_components + [
+        security_components = components + [
             security_headers.get("sec_ch_ua", ""),
             security_headers.get("sec_ch_ua_platform", ""),
             security_headers.get("connection", ""),
@@ -451,13 +444,12 @@ class SessionManager:
         # Compile device information
         device_data = {
             # Original fields for backward compatibility
-            "fingerprint": basic_fingerprint,  # Keep your original field name
             "user_agent": user_agent,
             "accept_language": accept_language,
             "accept_encoding": accept_encoding,
             # Enhanced fields
             "client_ip": client_ip,
-            "enhanced_fingerprint": enhanced_fingerprint,
+            "fingerprint": fingerprint,
             "security_fingerprint": security_fingerprint,
             "parsed_ua": parsed_ua,
             "normalized_language": normalized_language,
@@ -465,7 +457,7 @@ class SessionManager:
             "security_headers": security_headers,
             "timestamp": datetime.now(timezone.utc).timestamp(),
             # Fingerprint metadata
-            "fingerprint_components": len([c for c in stable_components if c]),
+            "fingerprint_components": len([c for c in components if c]),
             "has_security_headers": bool(any(security_headers.values())),
         }
 

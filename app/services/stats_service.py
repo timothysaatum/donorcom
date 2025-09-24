@@ -1,4 +1,4 @@
-from sqlalchemy import select, func, extract, and_, or_
+from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date, datetime, timedelta
 from typing import List, Dict, Any, Optional
@@ -7,7 +7,6 @@ from app.models.request import (
     DashboardDailySummary,
 )
 from app.models.distribution import BloodDistribution
-import calendar
 import uuid
 from sqlalchemy.exc import SQLAlchemyError
 from app.utils.logging_config import get_logger
@@ -98,170 +97,6 @@ class StatsService:
                 "direction": requests_dir,
             },
         }
-
-    async def get_monthly_transfer_stats(
-        self,
-        facility_id: uuid.UUID,
-        year: Optional[int] = None,
-        blood_product_types: Optional[List[str]] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Get monthly blood transfer statistics for a facility.
-
-        Args:
-            facility_id: The facility ID to get stats for
-            year: Year to get stats for (defaults to current year)
-            blood_product_types: Optional list of blood product types to filter by
-
-        Returns:
-            List of monthly data with month names and transfer counts
-        """
-        if year is None:
-            year = date.today().year
-
-        # Base query for blood distributions delivered to the facility
-        query = select(
-            extract("month", BloodDistribution.date_delivered).label("month"),
-            func.coalesce(func.sum(BloodDistribution.quantity), 0).label("total_units"),
-        ).where(
-            and_(
-                BloodDistribution.dispatched_to_id == facility_id,
-                BloodDistribution.date_delivered.is_not(None),
-                extract("year", BloodDistribution.date_delivered) == year,
-                BloodDistribution.status != "RETURNED",  # Exclude returned blood
-            )
-        )
-
-        # Add blood product type filter if provided
-        if blood_product_types:
-            query = query.where(
-                BloodDistribution.blood_product.in_(blood_product_types)
-            )
-
-        # Group by month and order by month
-        query = query.group_by(extract("month", BloodDistribution.date_delivered))
-        query = query.order_by(extract("month", BloodDistribution.date_delivered))
-
-        result = await self.db.execute(query)
-        monthly_data = result.fetchall()
-
-        # Create a complete 12-month dataset with zero values for missing months
-        monthly_stats = []
-        data_dict = {row.month: row.total_units for row in monthly_data}
-
-        for month_num in range(1, 13):
-            month_name = calendar.month_name[month_num]
-            monthly_stats.append(
-                {
-                    "month": month_name,
-                    "month_number": month_num,
-                    "total_units": data_dict.get(month_num, 0),
-                    "year": year,
-                }
-            )
-
-        return monthly_stats
-
-    async def get_blood_product_breakdown(
-        self,
-        facility_id: uuid.UUID,
-        year: Optional[int] = None,
-        month: Optional[int] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Get breakdown of blood transfers by product type.
-
-        Args:
-            facility_id: The facility ID to get stats for
-            year: Year to filter by (defaults to current year)
-            month: Optional month to filter by
-
-        Returns:
-            List of blood product types with their transfer counts
-        """
-        if year is None:
-            year = date.today().year
-
-        query = select(
-            BloodDistribution.blood_product,
-            func.coalesce(func.sum(BloodDistribution.quantity), 0).label("total_units"),
-            func.count(BloodDistribution.id).label("total_transfers"),
-        ).where(
-            and_(
-                BloodDistribution.dispatched_to_id == facility_id,
-                BloodDistribution.date_delivered.is_not(None),
-                extract("year", BloodDistribution.date_delivered) == year,
-                BloodDistribution.status != "RETURNED",
-            )
-        )
-
-        # Add month filter if provided
-        if month:
-            query = query.where(
-                extract("month", BloodDistribution.date_delivered) == month
-            )
-
-        query = query.group_by(BloodDistribution.blood_product)
-        query = query.order_by(BloodDistribution.blood_product)
-
-        result = await self.db.execute(query)
-        breakdown_data = result.fetchall()
-
-        return [
-            {
-                "blood_product": row.blood_product,
-                "total_units": row.total_units,
-                "total_transfers": row.total_transfers,
-            }
-            for row in breakdown_data
-        ]
-
-    async def get_transfer_trends(
-        self, facility_id: uuid.UUID, days: int = 30
-    ) -> List[Dict[str, Any]]:
-        """
-        Get daily transfer trends for the last N days.
-
-        Args:
-            facility_id: The facility ID to get stats for
-            days: Number of days to look back (default 30)
-
-        Returns:
-            List of daily transfer data
-        """
-        start_date = date.today() - timedelta(days=days)
-
-        query = (
-            select(
-                func.date(BloodDistribution.date_delivered).label("transfer_date"),
-                func.coalesce(func.sum(BloodDistribution.quantity), 0).label(
-                    "total_units"
-                ),
-                func.count(BloodDistribution.id).label("total_transfers"),
-            )
-            .where(
-                and_(
-                    BloodDistribution.dispatched_to_id == facility_id,
-                    BloodDistribution.date_delivered.is_not(None),
-                    func.date(BloodDistribution.date_delivered) >= start_date,
-                    BloodDistribution.status != "RETURNED",
-                )
-            )
-            .group_by(func.date(BloodDistribution.date_delivered))
-            .order_by(func.date(BloodDistribution.date_delivered))
-        )
-
-        result = await self.db.execute(query)
-        trends_data = result.fetchall()
-
-        return [
-            {
-                "date": row.transfer_date.isoformat(),
-                "total_units": row.total_units,
-                "total_transfers": row.total_transfers,
-            }
-            for row in trends_data
-        ]
 
     async def get_distribution_chart_data(
         self,
