@@ -172,10 +172,6 @@ class RouteHelpers:
         )
 
 
-# =============================================================================
-# DASHBOARD SUMMARY ENDPOINT - SIMPLIFIED
-# =============================================================================
-
 
 @router.get("/summary", response_model=DashboardSummaryResponse)
 async def dashboard_summary(

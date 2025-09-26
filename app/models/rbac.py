@@ -32,7 +32,6 @@ class Role(Base):
     parent: Mapped[Optional["Role"]] = relationship(remote_side=[id])
     permissions: Mapped[List["Permission"]] = relationship(secondary=role_permissions, back_populates="roles")
     
-    # ADD THIS LINE: Missing users relationship
     users: Mapped[List["User"]] = relationship("User", secondary=user_roles, back_populates="roles")
 
 class Permission(Base):
@@ -41,7 +40,6 @@ class Permission(Base):
     name: Mapped[str] = Column(String(96), unique=True, index=True)
     roles: Mapped[List[Role]] = relationship(secondary=role_permissions, back_populates="permissions")
 
-# --- Optional per-facility scoping ---
 
 
 class UserRoleScope(Base):

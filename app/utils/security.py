@@ -933,6 +933,7 @@ async def get_current_user_ws(websocket: WebSocket, db: AsyncSession) -> User:
     try:
         # Get token from cookies
         token = websocket.cookies.get("access_token")
+        print("WebSocket token:", token)
         if not token:
             logger.warning("WebSocket authentication failed: No token provided")
             await websocket.close(code=1008)
