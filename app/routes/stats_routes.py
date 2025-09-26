@@ -469,12 +469,29 @@ async def distribution_chart(
             actual_from_date = parsed_from_date or (actual_to_date - timedelta(days=7))
 
             # Set blood products used (with defaults applied)
+            def to_human(bp):
+                if isinstance(bp, BloodProduct):
+                    return bp.value
+                mapping = {
+                    "whole_blood": BloodProduct.WHOLE_BLOOD.value,
+                    "red_blood_cells": BloodProduct.RED_BLOOD_CELLS.value,
+                    "platelets": BloodProduct.PLATELETS.value,
+                    "fresh_frozen_plasma": BloodProduct.FRESH_FROZEN_PLASMA.value,
+                    "cryoprecipitate": BloodProduct.CRYOPRECIPITATE.value,
+                    "albumin": BloodProduct.ALBUMIN.value,
+                    "plasma": BloodProduct.PLASMA.value,
+                }
+                return mapping.get(str(bp).lower(), str(bp))
+
             actual_blood_products = blood_products or [
                 "whole_blood",
                 "red_blood_cells",
                 "platelets",
             ]
             actual_blood_types = blood_types
+
+            # Map to human-readable names for meta
+            meta_blood_products = [to_human(bp) for bp in actual_blood_products]
 
             # Create metadata
             metadata = ChartMetadata(
@@ -483,7 +500,7 @@ async def distribution_chart(
                     "from": actual_from_date.isoformat(),
                     "to": actual_to_date.isoformat(),
                 },
-                bloodProducts=actual_blood_products,
+                bloodProducts=meta_blood_products,
                 bloodTypes=actual_blood_types,
             )
 
@@ -517,7 +534,11 @@ async def distribution_chart(
                     "selected_blood_types": actual_blood_types,
                 },
             )
-
+            print(f"===============Chart Data{chart_data}=============")
+            print("=================================================")
+            print(
+                DistributionChartResponse(success=True, data=chart_data, meta=metadata)
+            )
             return DistributionChartResponse(
                 success=True, data=chart_data, meta=metadata
             )
@@ -763,15 +784,30 @@ async def get_request_chart_get(
             actual_to_date = to_date or datetime.now()
 
             # Build metadata for the response including record count and date range
+            def to_human(bp):
+                if isinstance(bp, BloodProduct):
+                    return bp.value
+                mapping = {
+                    "whole_blood": BloodProduct.WHOLE_BLOOD.value,
+                    "red_blood_cells": BloodProduct.RED_BLOOD_CELLS.value,
+                    "platelets": BloodProduct.PLATELETS.value,
+                    "fresh_frozen_plasma": BloodProduct.FRESH_FROZEN_PLASMA.value,
+                    "cryoprecipitate": BloodProduct.CRYOPRECIPITATE.value,
+                    "albumin": BloodProduct.ALBUMIN.value,
+                    "plasma": BloodProduct.PLASMA.value,
+                }
+                return mapping.get(str(bp).lower(), str(bp))
+
+            meta_blood_products = (
+                [to_human(bp) for bp in blood_products] if blood_products else []
+            )
             metadata = RequestChartMetadata(
                 totalRecords=len(chart_data),
                 dateRange={
                     "from": actual_from_date.isoformat(),
                     "to": actual_to_date.isoformat(),
                 },
-                bloodProducts=(
-                    [bp.value for bp in blood_products] if blood_products else []
-                ),
+                bloodProducts=meta_blood_products,
                 bloodTypes=[bt.value for bt in blood_types] if blood_types else None,
             )
 

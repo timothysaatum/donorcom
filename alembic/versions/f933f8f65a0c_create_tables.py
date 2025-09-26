@@ -1,8 +1,8 @@
 """create tables
 
-Revision ID: ecfbe35aa9ce
+Revision ID: f933f8f65a0c
 Revises: 
-Create Date: 2025-09-18 18:28:21.722636
+Create Date: 2025-09-25 21:55:18.228255
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = 'ecfbe35aa9ce'
+revision: str = 'f933f8f65a0c'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -49,6 +49,17 @@ def upgrade() -> None:
     sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
+    with op.batch_alter_table('patients', schema=None) as batch_op:
+        batch_op.create_index('idx_patient_created_name', ['created_at', 'name'], unique=False)
+        batch_op.create_index('idx_patient_name_age', ['name', 'age'], unique=False)
+        batch_op.create_index('idx_patient_sex_age', ['sex', 'age'], unique=False)
+        batch_op.create_index(batch_op.f('ix_patients_age'), ['age'], unique=False)
+        batch_op.create_index(batch_op.f('ix_patients_created_at'), ['created_at'], unique=False)
+        batch_op.create_index(batch_op.f('ix_patients_diagnosis'), ['diagnosis'], unique=False)
+        batch_op.create_index(batch_op.f('ix_patients_id'), ['id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_patients_name'), ['name'], unique=False)
+        batch_op.create_index(batch_op.f('ix_patients_sex'), ['sex'], unique=False)
+
     op.create_table('permissions',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('name', sa.String(length=96), nullable=True),
@@ -107,8 +118,21 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     with op.batch_alter_table('users', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_users_created_at'), ['created_at'], unique=False)
         batch_op.create_index(batch_op.f('ix_users_email'), ['email'], unique=True)
+        batch_op.create_index(batch_op.f('ix_users_failed_login_attempts'), ['failed_login_attempts'], unique=False)
+        batch_op.create_index(batch_op.f('ix_users_first_name'), ['first_name'], unique=False)
         batch_op.create_index(batch_op.f('ix_users_id'), ['id'], unique=True)
+        batch_op.create_index(batch_op.f('ix_users_is_active'), ['is_active'], unique=False)
+        batch_op.create_index(batch_op.f('ix_users_is_banned'), ['is_banned'], unique=False)
+        batch_op.create_index(batch_op.f('ix_users_is_suspended'), ['is_suspended'], unique=False)
+        batch_op.create_index(batch_op.f('ix_users_is_verified'), ['is_verified'], unique=False)
+        batch_op.create_index(batch_op.f('ix_users_last_login'), ['last_login'], unique=False)
+        batch_op.create_index(batch_op.f('ix_users_last_name'), ['last_name'], unique=False)
+        batch_op.create_index(batch_op.f('ix_users_locked_until'), ['locked_until'], unique=False)
+        batch_op.create_index(batch_op.f('ix_users_status'), ['status'], unique=False)
+        batch_op.create_index(batch_op.f('ix_users_verification_token'), ['verification_token'], unique=False)
+        batch_op.create_index(batch_op.f('ix_users_work_facility_id'), ['work_facility_id'], unique=False)
 
     op.create_table('blood_banks',
     sa.Column('id', sa.UUID(), nullable=False),
@@ -135,9 +159,9 @@ def upgrade() -> None:
     sa.Column('blood_type', sa.String(length=10), nullable=False),
     sa.Column('blood_product', sa.String(length=50), nullable=False),
     sa.Column('quantity_requested', sa.Integer(), nullable=False),
-    sa.Column('request_status', sa.Enum('pending', 'accepted', 'rejected', 'cancelled', name='requeststatus'), nullable=False),
-    sa.Column('processing_status', sa.Enum('pending', 'initiated', 'dispatched', 'completed', name='processingstatus'), nullable=False),
-    sa.Column('priority', sa.Enum('urgent', 'not_urgent', name='prioritystatus'), nullable=True),
+    sa.Column('request_status', sa.Enum('PENDING', 'ACCEPTED', 'REJECTED', 'CANCELLED', name='requeststatus'), nullable=False),
+    sa.Column('processing_status', sa.Enum('PENDING', 'INITIATED', 'DISPATCHED', 'COMPLETED', name='processingstatus'), nullable=False),
+    sa.Column('priority', sa.Enum('URGENT', 'NOT_URGENT', name='prioritystatus'), nullable=True),
     sa.Column('notes', sa.Text(), nullable=True),
     sa.Column('cancellation_reason', sa.String(length=200), nullable=True),
     sa.Column('option', sa.String(length=10), nullable=False),
@@ -154,10 +178,29 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     with op.batch_alter_table('blood_requests', schema=None) as batch_op:
+        batch_op.create_index('idx_request_blood_urgent', ['blood_type', 'priority', 'request_status'], unique=False)
+        batch_op.create_index('idx_request_created_status', ['created_at', 'request_status'], unique=False)
+        batch_op.create_index('idx_request_facility_status', ['facility_id', 'request_status'], unique=False)
+        batch_op.create_index('idx_request_group_master', ['request_group_id', 'is_master_request'], unique=False)
+        batch_op.create_index('idx_request_processing_priority', ['processing_status', 'priority'], unique=False)
+        batch_op.create_index('idx_request_product_facility', ['blood_product', 'facility_id'], unique=False)
+        batch_op.create_index('idx_request_requester_date', ['requester_id', 'created_at'], unique=False)
+        batch_op.create_index('idx_request_source_status', ['source_facility_id', 'request_status'], unique=False)
+        batch_op.create_index(batch_op.f('ix_blood_requests_blood_product'), ['blood_product'], unique=False)
+        batch_op.create_index(batch_op.f('ix_blood_requests_blood_type'), ['blood_type'], unique=False)
+        batch_op.create_index(batch_op.f('ix_blood_requests_created_at'), ['created_at'], unique=False)
         batch_op.create_index(batch_op.f('ix_blood_requests_facility_id'), ['facility_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_blood_requests_fulfilled_by_id'), ['fulfilled_by_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_blood_requests_id'), ['id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_blood_requests_is_master_request'), ['is_master_request'], unique=False)
+        batch_op.create_index(batch_op.f('ix_blood_requests_priority'), ['priority'], unique=False)
+        batch_op.create_index(batch_op.f('ix_blood_requests_processing_status'), ['processing_status'], unique=False)
+        batch_op.create_index(batch_op.f('ix_blood_requests_quantity_requested'), ['quantity_requested'], unique=False)
         batch_op.create_index(batch_op.f('ix_blood_requests_request_group_id'), ['request_group_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_blood_requests_request_status'), ['request_status'], unique=False)
+        batch_op.create_index(batch_op.f('ix_blood_requests_requester_id'), ['requester_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_blood_requests_source_facility_id'), ['source_facility_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_blood_requests_updated_at'), ['updated_at'], unique=False)
 
     op.create_table('device_trust',
     sa.Column('id', sa.UUID(), nullable=False),
@@ -311,6 +354,12 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     with op.batch_alter_table('user_sessions', schema=None) as batch_op:
+        batch_op.create_index('idx_session_created_active', ['created_at', 'is_active'], unique=False)
+        batch_op.create_index('idx_session_device_user', ['device_fingerprint', 'user_id'], unique=False)
+        batch_op.create_index('idx_session_ip_user', ['ip_address', 'user_id'], unique=False)
+        batch_op.create_index('idx_session_suspicious', ['is_suspicious', 'risk_score'], unique=False)
+        batch_op.create_index('idx_session_token_active', ['session_token', 'is_active'], unique=False)
+        batch_op.create_index('idx_session_user_active', ['user_id', 'is_active'], unique=False)
         batch_op.create_index(batch_op.f('ix_user_sessions_created_at'), ['created_at'], unique=False)
         batch_op.create_index(batch_op.f('ix_user_sessions_device_fingerprint'), ['device_fingerprint'], unique=False)
         batch_op.create_index(batch_op.f('ix_user_sessions_expires_at'), ['expires_at'], unique=False)
@@ -338,7 +387,20 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     with op.batch_alter_table('blood_inventory', schema=None) as batch_op:
+        batch_op.create_index('idx_inventory_blood_bank_type', ['blood_bank_id', 'blood_type'], unique=False)
+        batch_op.create_index('idx_inventory_created_bank', ['created_at', 'blood_bank_id'], unique=False)
+        batch_op.create_index('idx_inventory_expiry_bank', ['expiry_date', 'blood_bank_id'], unique=False)
+        batch_op.create_index('idx_inventory_product_expiry', ['blood_product', 'expiry_date'], unique=False)
+        batch_op.create_index('idx_inventory_product_type_bank', ['blood_product', 'blood_type', 'blood_bank_id'], unique=False)
+        batch_op.create_index('idx_inventory_type_quantity', ['blood_type', 'quantity'], unique=False)
+        batch_op.create_index(batch_op.f('ix_blood_inventory_added_by_id'), ['added_by_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_blood_inventory_blood_bank_id'), ['blood_bank_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_blood_inventory_blood_product'), ['blood_product'], unique=False)
+        batch_op.create_index(batch_op.f('ix_blood_inventory_blood_type'), ['blood_type'], unique=False)
+        batch_op.create_index(batch_op.f('ix_blood_inventory_created_at'), ['created_at'], unique=False)
+        batch_op.create_index(batch_op.f('ix_blood_inventory_expiry_date'), ['expiry_date'], unique=False)
         batch_op.create_index(batch_op.f('ix_blood_inventory_id'), ['id'], unique=True)
+        batch_op.create_index(batch_op.f('ix_blood_inventory_quantity'), ['quantity'], unique=False)
 
     op.create_table('device_registrations',
     sa.Column('id', sa.UUID(), nullable=False),
@@ -418,7 +480,7 @@ def upgrade() -> None:
     sa.Column('blood_product', sa.String(length=50), nullable=False),
     sa.Column('blood_type', sa.String(length=10), nullable=False),
     sa.Column('quantity', sa.Integer(), nullable=False),
-    sa.Column('status', sa.Enum('pending_receive', 'in_transit', 'delivered', 'cancelled', 'returned', name='distribution_status'), nullable=False),
+    sa.Column('status', sa.Enum('PENDING_RECEIVE', 'IN_TRANSIT', 'DELIVERED', 'CANCELLED', 'RETURNED', name='distribution_status'), nullable=False),
     sa.Column('date_dispatched', sa.DateTime(), nullable=True),
     sa.Column('date_delivered', sa.DateTime(), nullable=True),
     sa.Column('tracking_number', sa.String(length=100), nullable=True),
@@ -494,7 +556,20 @@ def downgrade() -> None:
 
     op.drop_table('device_registrations')
     with op.batch_alter_table('blood_inventory', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_blood_inventory_quantity'))
         batch_op.drop_index(batch_op.f('ix_blood_inventory_id'))
+        batch_op.drop_index(batch_op.f('ix_blood_inventory_expiry_date'))
+        batch_op.drop_index(batch_op.f('ix_blood_inventory_created_at'))
+        batch_op.drop_index(batch_op.f('ix_blood_inventory_blood_type'))
+        batch_op.drop_index(batch_op.f('ix_blood_inventory_blood_product'))
+        batch_op.drop_index(batch_op.f('ix_blood_inventory_blood_bank_id'))
+        batch_op.drop_index(batch_op.f('ix_blood_inventory_added_by_id'))
+        batch_op.drop_index('idx_inventory_type_quantity')
+        batch_op.drop_index('idx_inventory_product_type_bank')
+        batch_op.drop_index('idx_inventory_product_expiry')
+        batch_op.drop_index('idx_inventory_expiry_bank')
+        batch_op.drop_index('idx_inventory_created_bank')
+        batch_op.drop_index('idx_inventory_blood_bank_type')
 
     op.drop_table('blood_inventory')
     with op.batch_alter_table('user_sessions', schema=None) as batch_op:
@@ -509,6 +584,12 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_user_sessions_expires_at'))
         batch_op.drop_index(batch_op.f('ix_user_sessions_device_fingerprint'))
         batch_op.drop_index(batch_op.f('ix_user_sessions_created_at'))
+        batch_op.drop_index('idx_session_user_active')
+        batch_op.drop_index('idx_session_token_active')
+        batch_op.drop_index('idx_session_suspicious')
+        batch_op.drop_index('idx_session_ip_user')
+        batch_op.drop_index('idx_session_device_user')
+        batch_op.drop_index('idx_session_created_active')
 
     op.drop_table('user_sessions')
     op.drop_table('user_roles')
@@ -546,10 +627,29 @@ def downgrade() -> None:
 
     op.drop_table('device_trust')
     with op.batch_alter_table('blood_requests', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_blood_requests_updated_at'))
         batch_op.drop_index(batch_op.f('ix_blood_requests_source_facility_id'))
+        batch_op.drop_index(batch_op.f('ix_blood_requests_requester_id'))
+        batch_op.drop_index(batch_op.f('ix_blood_requests_request_status'))
         batch_op.drop_index(batch_op.f('ix_blood_requests_request_group_id'))
+        batch_op.drop_index(batch_op.f('ix_blood_requests_quantity_requested'))
+        batch_op.drop_index(batch_op.f('ix_blood_requests_processing_status'))
+        batch_op.drop_index(batch_op.f('ix_blood_requests_priority'))
+        batch_op.drop_index(batch_op.f('ix_blood_requests_is_master_request'))
         batch_op.drop_index(batch_op.f('ix_blood_requests_id'))
+        batch_op.drop_index(batch_op.f('ix_blood_requests_fulfilled_by_id'))
         batch_op.drop_index(batch_op.f('ix_blood_requests_facility_id'))
+        batch_op.drop_index(batch_op.f('ix_blood_requests_created_at'))
+        batch_op.drop_index(batch_op.f('ix_blood_requests_blood_type'))
+        batch_op.drop_index(batch_op.f('ix_blood_requests_blood_product'))
+        batch_op.drop_index('idx_request_source_status')
+        batch_op.drop_index('idx_request_requester_date')
+        batch_op.drop_index('idx_request_product_facility')
+        batch_op.drop_index('idx_request_processing_priority')
+        batch_op.drop_index('idx_request_group_master')
+        batch_op.drop_index('idx_request_facility_status')
+        batch_op.drop_index('idx_request_created_status')
+        batch_op.drop_index('idx_request_blood_urgent')
 
     op.drop_table('blood_requests')
     with op.batch_alter_table('blood_banks', schema=None) as batch_op:
@@ -559,8 +659,21 @@ def downgrade() -> None:
 
     op.drop_table('blood_banks')
     with op.batch_alter_table('users', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_users_work_facility_id'))
+        batch_op.drop_index(batch_op.f('ix_users_verification_token'))
+        batch_op.drop_index(batch_op.f('ix_users_status'))
+        batch_op.drop_index(batch_op.f('ix_users_locked_until'))
+        batch_op.drop_index(batch_op.f('ix_users_last_name'))
+        batch_op.drop_index(batch_op.f('ix_users_last_login'))
+        batch_op.drop_index(batch_op.f('ix_users_is_verified'))
+        batch_op.drop_index(batch_op.f('ix_users_is_suspended'))
+        batch_op.drop_index(batch_op.f('ix_users_is_banned'))
+        batch_op.drop_index(batch_op.f('ix_users_is_active'))
         batch_op.drop_index(batch_op.f('ix_users_id'))
+        batch_op.drop_index(batch_op.f('ix_users_first_name'))
+        batch_op.drop_index(batch_op.f('ix_users_failed_login_attempts'))
         batch_op.drop_index(batch_op.f('ix_users_email'))
+        batch_op.drop_index(batch_op.f('ix_users_created_at'))
 
     op.drop_table('users')
     op.drop_table('role_permissions')
@@ -573,6 +686,17 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_permissions_name'))
 
     op.drop_table('permissions')
+    with op.batch_alter_table('patients', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_patients_sex'))
+        batch_op.drop_index(batch_op.f('ix_patients_name'))
+        batch_op.drop_index(batch_op.f('ix_patients_id'))
+        batch_op.drop_index(batch_op.f('ix_patients_diagnosis'))
+        batch_op.drop_index(batch_op.f('ix_patients_created_at'))
+        batch_op.drop_index(batch_op.f('ix_patients_age'))
+        batch_op.drop_index('idx_patient_sex_age')
+        batch_op.drop_index('idx_patient_name_age')
+        batch_op.drop_index('idx_patient_created_name')
+
     op.drop_table('patients')
     with op.batch_alter_table('facilities', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_facilities_id'))

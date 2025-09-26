@@ -304,61 +304,83 @@ class StatsService:
         raw_data: List,
         from_date: datetime,
         to_date: datetime,
-        selected_keys: List[str],
+        selected_keys: List[str],  # This argument is not needed, but keep for compatibility
     ) -> List[Dict[str, Any]]:
-        """Build chart data more efficiently without unnecessary loops."""
+        """Build chart data with human-readable blood product names as keys."""
 
-        # Create reverse mapping once
-        db_to_key_mapping = {
-            "Whole Blood": "whole_blood",
-            "Red Blood Cells": "red_blood_cells",
-            "Red Cells": "red_blood_cells",
-            "Platelets": "platelets",
-            "Fresh Frozen Plasma": "fresh_frozen_plasma",
-            "Plasma": "fresh_frozen_plasma",
-            "Cryoprecipitate": "cryoprecipitate",
-            "Albumin": "albumin",
+        db_to_human = {
+            "Whole Blood": "Whole Blood",
+            "Red Blood Cells": "Red Blood Cells",
+            "Red Cells": "Red Blood Cells",
+            "Platelets": "Platelets",
+            "Fresh Frozen Plasma": "Fresh Frozen Plasma",
+            "Plasma": "Fresh Frozen Plasma",
+            "Cryoprecipitate": "Cryoprecipitate",
+            "Albumin": "Albumin",
         }
-
-        # Group data by date efficiently
+        canonical_products = [
+            "Whole Blood",
+            "Red Blood Cells",
+            "Platelets",
+            "Fresh Frozen Plasma",
+            "Cryoprecipitate",
+            "Albumin",
+        ]
+        # Only collect human-readable keys in data_by_date
         data_by_date = {}
         for row in raw_data:
-            date_key = row.distribution_date
-            api_key = db_to_key_mapping.get(row.blood_product)
-
-            if api_key and api_key in selected_keys:
-                if date_key not in data_by_date:
-                    data_by_date[date_key] = {}
-
-                data_by_date[date_key][api_key] = (
-                    data_by_date[date_key].get(api_key, 0) + row.daily_received
-                )
-
-        # Generate chart data - only for dates that have data or are explicitly needed
+            date_key = (
+                getattr(row, "distribution_date", None)
+                or getattr(row, "request_date", None)
+                or (row[0] if isinstance(row, (list, tuple)) else None)
+            )
+            product = db_to_human.get(
+                getattr(row, "blood_product", None)
+                or (row[1] if isinstance(row, (list, tuple)) else None),
+                None,
+            )
+            if not product:
+                continue
+            if date_key not in data_by_date:
+                data_by_date[date_key] = {}
+            if product not in data_by_date[date_key]:
+                data_by_date[date_key][product] = 0
+            # Use correct field for value
+            value = (
+                getattr(row, "daily_received", None)
+                if hasattr(row, "daily_received")
+                else getattr(row, "daily_requested", None)
+            )
+            if value is None and isinstance(row, (list, tuple)):
+                value = row[3] if len(row) > 3 else 0
+            data_by_date[date_key][product] += value or 0
         chart_data = []
         current_date = from_date.date()
         end_date = to_date.date()
-
-        # If we have sparse data, we might want to include zero days
-        # For performance, you could skip days with no data:
-        # for date_str in sorted(data_by_date.keys()):
-
         while current_date <= end_date:
             date_key = current_date.isoformat()
-
             chart_point = {
                 "date": current_date.isoformat() + "T10:30:00Z",
                 "formattedDate": current_date.strftime("%b %d"),
             }
-
-            # Add data for selected products (0 if no data for that date)
             day_data = data_by_date.get(date_key, {})
-            for api_key in selected_keys:
-                chart_point[api_key] = day_data.get(api_key, 0)
-
+            # Only add human-readable keys
+            for product in canonical_products:
+                chart_point[product] = day_data.get(product, 0)
+            print(f"=================={chart_point}===================")
+            # Remove any snake_case keys if present (defensive, but should not be needed)
+            for k in [
+                "whole_blood",
+                "red_blood_cells",
+                "platelets",
+                "fresh_frozen_plasma",
+                "cryoprecipitate",
+                "albumin",
+            ]:
+                chart_point.pop(k, None)
             chart_data.append(chart_point)
             current_date += timedelta(days=1)
-
+            print(f"=====================Chart Data: {chart_data}===================")
         return chart_data
 
 
@@ -604,92 +626,55 @@ class RequestTrackingService:
         raw_data: List,
         from_date: datetime,
         to_date: datetime,
-        selected_keys: List[str],
+        selected_keys: List[str],  # This argument is not needed, but keep for compatibility
     ) -> List[Dict[str, Any]]:
-        """Build chart data with proper null handling for unselected products."""
+        """Build chart data with human-readable blood product names as keys."""
 
-        db_to_key_mapping = {
-            "Whole Blood": "whole_blood",
-            "Red Blood Cells": "red_blood_cells",
-            "Platelets": "platelets",
-            "Fresh Frozen Plasma": "fresh_frozen_plasma",
-            "Plasma": "fresh_frozen_plasma",
-            "Cryoprecipitate": "cryoprecipitate",
-            "Albumin": "albumin",
+        db_to_human = {
+            "Whole Blood": "Whole Blood",
+            "Red Blood Cells": "Red Blood Cells",
+            "Red Cells": "Red Blood Cells",
+            "Platelets": "Platelets",
+            "Fresh Frozen Plasma": "Fresh Frozen Plasma",
+            "Plasma": "Fresh Frozen Plasma",
+            "Cryoprecipitate": "Cryoprecipitate",
+            "Albumin": "Albumin",
         }
-
-        # All possible product keys
-        all_product_keys = [
-            "whole_blood",
-            "red_blood_cells",
-            "platelets",
-            "fresh_frozen_plasma",
-            "cryoprecipitate",
-            "albumin",
+        canonical_products = [
+            "Whole Blood",
+            "Red Blood Cells",
+            "Platelets",
+            "Fresh Frozen Plasma",
+            "Cryoprecipitate",
+            "Albumin",
         ]
-
-        logger.info(f"Processing raw data with {len(raw_data)} records")
-        logger.info(f"Selected keys: {selected_keys}")
-        logger.info(f"DB to key mapping: {db_to_key_mapping}")
-
-        # Group data by date efficiently
         data_by_date = {}
         for row in raw_data:
-            date_key = (
-                row.request_date.isoformat()
-                if hasattr(row.request_date, "isoformat")
-                else str(row.request_date)
+            date_key = row.request_date if hasattr(row, "request_date") else row[0]
+            product = db_to_human.get(
+                row.blood_product if hasattr(row, "blood_product") else row[1], None
             )
-            api_key = db_to_key_mapping.get(row.blood_product)
-
-            logger.info(
-                f"Processing: Date={date_key}, Product='{row.blood_product}' -> API_Key='{api_key}', Quantity={row.daily_requested}"
+            if not product:
+                continue
+            if date_key not in data_by_date:
+                data_by_date[date_key] = {}
+            if product not in data_by_date[date_key]:
+                data_by_date[date_key][product] = 0
+            data_by_date[date_key][product] += (
+                row.daily_requested if hasattr(row, "daily_requested") else row[3] or 0
             )
-
-            if api_key and api_key in selected_keys:
-                if date_key not in data_by_date:
-                    data_by_date[date_key] = {}
-
-                data_by_date[date_key][api_key] = (
-                    data_by_date[date_key].get(api_key, 0) + row.daily_requested
-                )
-                logger.info(
-                    f"Added {row.daily_requested} to {api_key} for {date_key}. Total: {data_by_date[date_key][api_key]}"
-                )
-            else:
-                logger.warning(
-                    f"Skipping: Product '{row.blood_product}' -> API_Key '{api_key}', in_selected: {api_key in selected_keys if api_key else False}"
-                )
-
-        logger.info(f"Final data_by_date: {data_by_date}")
-
-        # Generate chart data
         chart_data = []
         current_date = from_date.date()
         end_date = to_date.date()
-
         while current_date <= end_date:
             date_key = current_date.isoformat()
-
             chart_point = {
                 "date": current_date.isoformat() + "T10:30:00Z",
                 "formattedDate": current_date.strftime("%b %d"),
             }
-
-            # Add data for ALL products, but:
-            # - Selected products get actual values (0 if no data for that date)
-            # - Unselected products get null
             day_data = data_by_date.get(date_key, {})
-            for api_key in all_product_keys:
-                if api_key in selected_keys:
-                    # Selected product: use actual value or 0
-                    chart_point[api_key] = day_data.get(api_key, 0)
-                else:
-                    # Unselected product: set to null
-                    chart_point[api_key] = None
-
+            for product in canonical_products:
+                chart_point[product] = day_data.get(product, 0)
             chart_data.append(chart_point)
             current_date += timedelta(days=1)
-
-        logger.info(f"Generated {len(chart_data)} chart data points")
         return chart_data

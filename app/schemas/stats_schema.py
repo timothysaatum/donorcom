@@ -6,6 +6,7 @@ from uuid import UUID
 
 from app.schemas.base_schema import BloodProduct, BloodType
 
+
 class Priority(str, Enum):
     """Priority options for API."""
 
@@ -82,37 +83,13 @@ class RequestChartDataPoint(BaseModel):
     formattedDate: str = Field(
         ..., description="Human-readable date format (e.g., 'Jan 15')"
     )
-    whole_blood: Optional[int] = Field(
-        0, description="Whole blood requests for this date"
-    )
-    red_blood_cells: Optional[int] = Field(
-        0, description="Red blood cell requests for this date"
-    )
-    platelets: Optional[int] = Field(0, description="Platelet requests for this date")
-    fresh_frozen_plasma: Optional[int] = Field(
-        0, description="Fresh frozen plasma requests for this date"
-    )
-    cryoprecipitate: Optional[int] = Field(
-        0, description="Cryoprecipitate requests for this date"
-    )
-    albumin: Optional[int] = Field(0, description="Albumin requests for this date")
-
-    @field_validator(
-        "whole_blood",
-        "red_blood_cells",
-        "platelets",
-        "fresh_frozen_plasma",
-        "cryoprecipitate",
-        "albumin",
-        mode="before",
-        check_fields=False,
-    )
+    
     def none_to_zero(cls, v):
         return 0 if v is None else v
 
     class Config:
         # Allow extra fields for dynamic blood products
-        extra = "allow"
+        extra = "allow"  # Allow only the keys present in chart_data (e.g., "Whole Blood", etc.)
 
 
 class RequestChartMetadata(BaseModel):
@@ -208,23 +185,7 @@ class TransferTrendsResponse(BaseModel):
 class ChartDataPoint(BaseModel):
     date: str  # ISO 8601 format
     formattedDate: str  # Display format like "Sep 04"
-    whole_blood: Optional[int] = 0
-    red_blood_cells: Optional[int] = 0
-    platelets: Optional[int] = 0
-    fresh_frozen_plasma: Optional[int] = 0
-    cryoprecipitate: Optional[int] = 0
-    albumin: Optional[int] = 0
-
-    @field_validator(
-        "whole_blood",
-        "red_blood_cells",
-        "platelets",
-        "fresh_frozen_plasma",
-        "cryoprecipitate",
-        "albumin",
-        mode="before",
-        check_fields=False,
-    )
+    
     def none_to_zero(cls, v):
         return 0 if v is None else v
 
@@ -244,5 +205,5 @@ class ChartMetadata(BaseModel):
 
 class DistributionChartResponse(BaseModel):
     success: bool
-    data: List[ChartDataPoint]
+    data: List[ChartDataPoint]  # Only human-readable keys will be present
     meta: ChartMetadata
