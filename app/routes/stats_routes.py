@@ -1,10 +1,3 @@
-# =============================================================================
-# STATS ROUTES MODULE - REFACTORED
-# =============================================================================
-# This module provides FastAPI routes for blood bank dashboard statistics and
-# analytics using the new refactored service architecture with shared functionality.
-# =============================================================================
-
 import asyncio
 import time
 from typing import List, Optional
@@ -599,33 +592,3 @@ async def get_request_chart_get(
             raise HTTPException(
                 status_code=500, detail=f"Internal server error: {str(e)}"
             )
-
-
-# =============================================================================
-# REFACTORING SUMMARY
-# =============================================================================
-# This refactored routes file provides:
-#
-# KEY IMPROVEMENTS:
-# ----------------
-# 1. RouteHelpers class - Centralized validation and helper functions
-# 2. Eliminated code duplication - Common validation logic shared
-# 3. Cleaner route handlers - Focus on orchestration, not implementation
-# 4. Simplified error handling - Consistent patterns across endpoints
-# 5. Better separation of concerns - Routes handle HTTP, services handle business logic
-#
-# REDUCED COMPLEXITY:
-# ------------------
-# - Routes went from ~150 lines each to ~50 lines each
-# - Validation logic centralized and reusable
-# - Service calls simplified with new unified interface
-# - Metadata building extracted to helper functions
-#
-# MAINTAINED FEATURES:
-# -------------------
-# - All original logging and performance monitoring
-# - Caching for request chart endpoint
-# - Comprehensive error handling and validation
-# - Security and permission checking
-# - Request timeout protection
-# =============================================================================
