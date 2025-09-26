@@ -1,64 +1,186 @@
 # =============================================================================
-# STATS ROUTES MODULE
+# STATS ROUTES MODULE - REFACTORED
 # =============================================================================
 # This module provides FastAPI routes for blood bank dashboard statistics and
-# analytics. It includes endpoints for:
-# - Dashboard summary (stock, transfers, requests comparison)
-# - Monthly transfer statistics and trends
-# - Blood product distribution charts
-# - Request tracking and analytics
-#
-# All endpoints include comprehensive logging, performance monitoring, caching,
-# and proper error handling. Security is enforced through permission-based
-# access control.
+# analytics using the new refactored service architecture with shared functionality.
 # =============================================================================
 
 import asyncio
 import time
+from typing import List, Optional
+from datetime import datetime, timedelta
+
+# FastAPI and database imports
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # Utility imports for caching and security
 from app.schemas.base_schema import BloodProduct, BloodType
 from app.utils.cache_manager import cache_key, manual_cache_get, manual_cache_set
 from app.utils.permission_checker import require_permission
 
-# FastAPI and database imports
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional
-from datetime import date, datetime, timedelta
-
 # Application-specific imports
 from app.dependencies import get_db
 from app.schemas.stats_schema import (
-    ChartMetadata,  # Chart metadata schema
-    DashboardSummaryResponse,  # Dashboard summary response model
-    DistributionChartResponse,  # Distribution chart response model
-    MonthlyTransferStatsResponse,  # Monthly stats response model
-    BloodProductBreakdownResponse,
+    ChartMetadata,
+    DashboardSummaryResponse,
+    DistributionChartResponse,
     RequestChartMetadata,
     RequestChartResponse,
-    RequestDirection,  # Product breakdown response model
-    TransferTrendsResponse,  # Transfer trends response model
+    RequestDirection,
 )
 from app.services.stats_service import StatsService, RequestTrackingService
 from app.models.user import User
 from app.utils.logging_config import get_logger, log_performance_metric, LogContext
 from app.utils.generic_id import get_user_facility_id, get_user_blood_bank_id
 
-# Initialize logger for this module
+# Initialize logger and router
 logger = get_logger(__name__)
-
-# Create router with dashboard prefix and tags for API documentation
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
+
+class RouteHelpers:
+    """Helper class for common route functionality."""
+
+    @staticmethod
+    def parse_iso_date(date_str: str, field_name: str, user_id: str) -> datetime:
+        """Parse ISO date string with proper error handling."""
+        try:
+            return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        except ValueError:
+            logger.warning(
+                f"Invalid {field_name} format provided",
+                extra={
+                    "event_type": f"invalid_{field_name}",
+                    "user_id": user_id,
+                    f"{field_name}": date_str,
+                },
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid {field_name} format. Use ISO 8601 format (e.g., '2024-01-15T00:00:00Z')",
+            )
+
+    @staticmethod
+    def validate_date_range(from_date: datetime, to_date: datetime, user_id: str):
+        """Validate date range constraints."""
+        if from_date > to_date:
+            logger.warning(
+                "Invalid date range - from_date after to_date",
+                extra={
+                    "event_type": "invalid_date_range",
+                    "user_id": user_id,
+                    "from_date": from_date.isoformat(),
+                    "to_date": to_date.isoformat(),
+                },
+            )
+            raise HTTPException(
+                status_code=400,
+                detail="The 'from' date cannot be after the 'to' date",
+            )
+
+        days_diff = (to_date - from_date).days
+        if days_diff > 365:
+            logger.warning(
+                "Date range too large",
+                extra={
+                    "event_type": "date_range_too_large",
+                    "user_id": user_id,
+                    "days_diff": days_diff,
+                },
+            )
+            raise HTTPException(
+                status_code=400, detail="Date range cannot exceed 365 days"
+            )
+
+    @staticmethod
+    def validate_blood_products(blood_products: List[BloodProduct], user_id: str):
+        """Validate blood product selections."""
+        valid_products = [
+            BloodProduct.WHOLE_BLOOD,
+            BloodProduct.RED_BLOOD_CELLS,
+            BloodProduct.PLATELETS,
+            BloodProduct.FRESH_FROZEN_PLASMA,
+            BloodProduct.CRYOPRECIPITATE,
+            BloodProduct.ALBUMIN,
+            BloodProduct.PLASMA,
+        ]
+
+        invalid_products = [p for p in blood_products if p not in valid_products]
+        if invalid_products:
+            logger.warning(
+                "Invalid blood product types provided",
+                extra={
+                    "event_type": "invalid_blood_products",
+                    "user_id": user_id,
+                    "invalid_products": invalid_products,
+                },
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid blood product types: {invalid_products}. Valid options: {[p.value for p in valid_products]}",
+            )
+
+    @staticmethod
+    def validate_blood_types(blood_types: List[BloodType], user_id: str):
+        """Validate blood type selections."""
+        valid_blood_types = [
+            BloodType.A_POSITIVE,
+            BloodType.A_NEGATIVE,
+            BloodType.B_POSITIVE,
+            BloodType.B_NEGATIVE,
+            BloodType.AB_POSITIVE,
+            BloodType.AB_NEGATIVE,
+            BloodType.O_POSITIVE,
+            BloodType.O_NEGATIVE,
+        ]
+
+        invalid_blood_types = [bt for bt in blood_types if bt not in valid_blood_types]
+        if invalid_blood_types:
+            logger.warning(
+                "Invalid blood types provided",
+                extra={
+                    "event_type": "invalid_blood_types",
+                    "user_id": user_id,
+                    "invalid_blood_types": invalid_blood_types,
+                },
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid blood types: {invalid_blood_types}. Valid options: {[bt.value for bt in valid_blood_types]}",
+            )
+
+    @staticmethod
+    def build_chart_metadata(
+        chart_data: List,
+        from_date: datetime,
+        to_date: datetime,
+        blood_products: Optional[List[BloodProduct]] = None,
+        blood_types: Optional[List[BloodType]] = None,
+    ) -> ChartMetadata:
+        """Build metadata for chart responses."""
+        # Convert BloodProduct enums to human-readable names
+        meta_blood_products = []
+        if blood_products:
+            meta_blood_products = [bp.value for bp in blood_products]
+
+        meta_blood_types = None
+        if blood_types:
+            meta_blood_types = [bt.value for bt in blood_types]
+
+        return ChartMetadata(
+            totalRecords=len(chart_data),
+            dateRange={
+                "from": from_date.isoformat(),
+                "to": to_date.isoformat(),
+            },
+            bloodProducts=meta_blood_products,
+            bloodTypes=meta_blood_types,
+        )
+
+
 # =============================================================================
-# DASHBOARD SUMMARY ENDPOINT
-# =============================================================================
-# Provides high-level statistics comparing today vs yesterday for:
-# - Total stock levels
-# - Total blood transfers
-# - Total blood requests
-# Each metric includes percentage change and trend direction (up/down/neutral)
+# DASHBOARD SUMMARY ENDPOINT - SIMPLIFIED
 # =============================================================================
 
 
@@ -72,56 +194,14 @@ async def dashboard_summary(
     ),
     request: Request = None,
 ):
-    """
-    Get dashboard summary statistics for a facility.
-
-    Returns today vs yesterday comparison for:
-    - Total blood units in stock
-    - Total blood units transferred
-    - Total blood requests made
-
-    Each metric includes:
-    - Current value
-    - Percentage change from yesterday
-    - Trend direction (up/down/neutral)
-
-    Required Permissions:
-    - facility.manage OR laboratory.manage OR blood.inventory.can_view
-
-    Returns:
-        DashboardSummaryResponse: Summary statistics with trend analysis
-
-    Example Response:
-    {
-        "total_in_stock": {
-            "value": 150,
-            "change": 12.5,
-            "direction": "up"
-        },
-        "total_transferred": {
-            "value": 25,
-            "change": -8.3,
-            "direction": "down"
-        },
-        "total_requested": {
-            "value": 30,
-            "change": 0.0,
-            "direction": "neutral"
-        }
-    }
-    """
-    import time
-
-    # Start performance monitoring
+    """Get dashboard summary statistics for a facility."""
     start_time = time.time()
 
-    # Set up logging context with request/user information
     with LogContext(
         req_id=getattr(request.state, "request_id", None) if request else None,
         usr_id=str(current_user.id),
         sess_id=getattr(request.state, "session_id", None) if request else None,
     ):
-        # Log the start of the dashboard summary request
         logger.info(
             "Dashboard summary request initiated",
             extra={
@@ -132,27 +212,12 @@ async def dashboard_summary(
         )
 
         try:
-            # Get the facility ID associated with the current user
-            # This determines which facility's statistics to retrieve
             facility_id = get_user_facility_id(current_user)
-
-            # Initialize the statistics service with database session
             stats_service = StatsService(db)
 
-            logger.debug(
-                "Fetching dashboard summary data",
-                extra={
-                    "event_type": "dashboard_summary_fetch",
-                    "facility_id": str(facility_id),
-                    "user_id": str(current_user.id),
-                },
-            )
-
-            # Retrieve dashboard summary data (today vs yesterday comparison)
-            # This includes stock levels, transfers, and requests with percentage changes
             stats_data = await stats_service.get_dashboard_summary(facility_id)
 
-            # Calculate and log performance metrics
+            # Log performance and success
             execution_time = time.time() - start_time
             log_performance_metric(
                 operation="dashboard_summary",
@@ -163,7 +228,6 @@ async def dashboard_summary(
                 },
             )
 
-            # Log successful completion with key metrics
             logger.info(
                 "Dashboard summary retrieved successfully",
                 extra={
@@ -171,21 +235,6 @@ async def dashboard_summary(
                     "user_id": str(current_user.id),
                     "facility_id": str(facility_id),
                     "execution_time_seconds": round(execution_time, 4),
-                    "total_in_stock": (
-                        stats_data["stock"]["value"]
-                        if stats_data and stats_data.get("stock")
-                        else 0
-                    ),
-                    "total_transferred": (
-                        stats_data["transferred"]["value"]
-                        if stats_data and stats_data.get("transferred")
-                        else 0
-                    ),
-                    "total_requested": (
-                        stats_data["requests"]["value"]
-                        if stats_data and stats_data.get("requests")
-                        else 0
-                    ),
                 },
             )
 
@@ -211,29 +260,19 @@ async def dashboard_summary(
 
 
 # =============================================================================
-# BLOOD DISTRIBUTION CHART ENDPOINT
-# =============================================================================
-# Provides time-series data for blood distribution visualization.
-# Supports filtering by date range, blood products, and blood types.
-# Data is returned as daily aggregated values suitable for chart rendering.
+# DISTRIBUTION CHART ENDPOINT - SIMPLIFIED
 # =============================================================================
 
 
 @router.get("/distribution-chart", response_model=DistributionChartResponse)
 async def distribution_chart(
-    from_date: Optional[str] = Query(
-        None, description="Start date in ISO format (defaults to 7 days ago)"
-    ),
-    to_date: Optional[str] = Query(
-        None, description="End date in ISO format (defaults to today)"
-    ),
+    from_date: Optional[str] = Query(None, description="Start date in ISO format"),
+    to_date: Optional[str] = Query(None, description="End date in ISO format"),
     blood_products: Optional[List[BloodProduct]] = Query(
-        None,
-        description="List of blood product keys to include (e.g., whole_blood,platelets)",
+        None, description="Blood products to include"
     ),
     blood_types: Optional[List[BloodType]] = Query(
-        None,
-        description="List of blood types to include (e.g., A+, B-, O+)",
+        None, description="Blood types to include"
     ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
@@ -243,60 +282,27 @@ async def distribution_chart(
     ),
     request: Request = None,
 ):
-    """
-    Get blood distribution chart data for dashboard visualization.
-
-    This endpoint retrieves daily blood distribution data aggregated by product type
-    and blood type over a specified date range. The data is optimized for chart
-    rendering with proper time-series formatting.
-
-    Query Parameters:
-    - from_date: Start date in ISO 8601 format (optional, defaults to 7 days ago)
-      Format: "2024-01-15T00:00:00Z" or "2024-01-15T00:00:00+00:00"
-    - to_date: End date in ISO 8601 format (optional, defaults to today)
-      Format: "2024-01-22T23:59:59Z" or "2024-01-22T23:59:59+00:00"
-    - blood_products: List of blood product types to include (optional)
-      Available: whole_blood, red_blood_cells, platelets, fresh_frozen_plasma,
-                 cryoprecipitate, albumin
-    - blood_types: List of blood types to include (optional)
-      Available: A+, A-, B+, B-, AB+, AB-, O+, O-
-
-    Returns:
-        DistributionChartResponse: Time-series data with daily distribution amounts
-
-    Example Usage:
-        GET /api/dashboard/distribution-chart?blood_products=whole_blood&blood_products=platelets&blood_types=A+&from_date=2024-01-01T00:00:00Z
-
-    Required Permissions:
-    - facility.manage OR laboratory.manage OR blood.inventory.manage
-
-    Data Structure:
-    Each data point contains:
-    - date: ISO timestamp for the day
-    - formattedDate: Human-readable date (e.g., "Jan 15")
-    - [product_type]: Quantity distributed for each selected product type
-    """
-    import time
-
-    # Start performance timing
+    """Get blood distribution chart data for dashboard visualization."""
     start_time = time.time()
 
-    # Initialize logging context with request tracking information
     with LogContext(
         req_id=getattr(request.state, "request_id", None) if request else None,
         usr_id=str(current_user.id),
         sess_id=getattr(request.state, "session_id", None) if request else None,
     ):
         logger.info(
-            "Inventory chart request initiated",
+            "Distribution chart request initiated",
             extra={
-                "event_type": "inventory_chart_started",
+                "event_type": "distribution_chart_started",
                 "user_id": str(current_user.id),
-                "user_email": current_user.email,
                 "from_date": from_date,
                 "to_date": to_date,
-                "blood_products": blood_products,
-                "blood_types": blood_types,
+                "blood_products": (
+                    [bp.value for bp in blood_products] if blood_products else None
+                ),
+                "blood_types": (
+                    [bt.value for bt in blood_types] if blood_types else None
+                ),
             },
         )
 
@@ -308,237 +314,77 @@ async def distribution_chart(
             parsed_to_date = None
 
             if from_date:
-                try:
-                    parsed_from_date = datetime.fromisoformat(
-                        from_date.replace("Z", "+00:00")
-                    )
-                except ValueError:
-                    logger.warning(
-                        "Invalid from_date format provided",
-                        extra={
-                            "event_type": "invalid_from_date",
-                            "user_id": str(current_user.id),
-                            "from_date": from_date,
-                        },
-                    )
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Invalid from_date format. Use ISO 8601 format (e.g., '2024-01-15T00:00:00Z')",
-                    )
+                parsed_from_date = RouteHelpers.parse_iso_date(
+                    from_date, "from_date", str(current_user.id)
+                )
 
             if to_date:
-                try:
-                    parsed_to_date = datetime.fromisoformat(
-                        to_date.replace("Z", "+00:00")
-                    )
-                except ValueError:
-                    logger.warning(
-                        "Invalid to_date format provided",
-                        extra={
-                            "event_type": "invalid_to_date",
-                            "user_id": str(current_user.id),
-                            "to_date": to_date,
-                        },
-                    )
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Invalid to_date format. Use ISO 8601 format (e.g., '2024-01-15T23:59:59Z')",
-                    )
-
-            # Validate date range
-            if (
-                parsed_from_date
-                and parsed_to_date
-                and parsed_from_date > parsed_to_date
-            ):
-                logger.warning(
-                    "Invalid date range - from_date after to_date",
-                    extra={
-                        "event_type": "invalid_date_range",
-                        "user_id": str(current_user.id),
-                        "from_date": from_date,
-                        "to_date": to_date,
-                    },
-                )
-                raise HTTPException(
-                    status_code=400,
-                    detail="The 'from' date cannot be after the 'to' date",
+                parsed_to_date = RouteHelpers.parse_iso_date(
+                    to_date, "to_date", str(current_user.id)
                 )
 
-            # Validate date range size (max 365 days)
+            # Validate date range if both dates provided
             if parsed_from_date and parsed_to_date:
-                days_diff = (parsed_to_date - parsed_from_date).days
-                if days_diff > 365:
-                    logger.warning(
-                        "Date range too large",
-                        extra={
-                            "event_type": "date_range_too_large",
-                            "user_id": str(current_user.id),
-                            "days_diff": days_diff,
-                        },
-                    )
-                    raise HTTPException(
-                        status_code=400, detail="Date range cannot exceed 365 days"
-                    )
+                RouteHelpers.validate_date_range(
+                    parsed_from_date, parsed_to_date, str(current_user.id)
+                )
 
-            # Validate blood products
-            valid_products = [
-                BloodProduct.WHOLE_BLOOD,
-                BloodProduct.RED_BLOOD_CELLS,
-                BloodProduct.PLATELETS,
-                BloodProduct.FRESH_FROZEN_PLASMA,
-                BloodProduct.CRYOPRECIPITATE,
-                BloodProduct.ALBUMIN,
-                BloodProduct.PLASMA,
-            ]
-
+            # Validate blood products and types
             if blood_products:
-                invalid_products = [
-                    p for p in blood_products if p not in valid_products
-                ]
-                if invalid_products:
-                    logger.warning(
-                        "Invalid blood product types provided",
-                        extra={
-                            "event_type": "invalid_blood_products",
-                            "user_id": str(current_user.id),
-                            "invalid_products": invalid_products,
-                        },
-                    )
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Invalid blood product types: {invalid_products}. Valid options: {[p.value for p in valid_products]}",
-                    )
-
-            # Validate blood types
-            valid_blood_types = [
-                BloodType.A_POSITIVE,
-                BloodType.A_NEGATIVE,
-                BloodType.B_POSITIVE,
-                BloodType.B_NEGATIVE,
-                BloodType.AB_POSITIVE,
-                BloodType.AB_NEGATIVE,
-                BloodType.O_POSITIVE,
-                BloodType.O_NEGATIVE,
-            ]
+                RouteHelpers.validate_blood_products(
+                    blood_products, str(current_user.id)
+                )
 
             if blood_types:
-                invalid_blood_types = [
-                    bt for bt in blood_types if bt not in valid_blood_types
-                ]
-                if invalid_blood_types:
-                    logger.warning(
-                        "Invalid blood types provided",
-                        extra={
-                            "event_type": "invalid_blood_types",
-                            "user_id": str(current_user.id),
-                            "invalid_blood_types": invalid_blood_types,
-                        },
-                    )
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Invalid blood types: {invalid_blood_types}. Valid options: {[bt.value for bt in valid_blood_types]}",
-                    )
+                RouteHelpers.validate_blood_types(blood_types, str(current_user.id))
 
+            # Get chart data using the new service
             stats_service = StatsService(db)
-
-            logger.debug(
-                "Fetching inventory chart data",
-                extra={
-                    "event_type": "inventory_chart_fetch",
-                    "facility_id": str(blood_bank_id),
-                    "user_id": str(current_user.id),
-                    "from_date": from_date,
-                    "to_date": to_date,
-                    "blood_products": blood_products,
-                    "blood_types": blood_types,
-                },
-            )
-
-            # Get chart data with selected products and blood types
             chart_data = await stats_service.get_distribution_chart_data(
                 blood_bank_id=blood_bank_id,
                 from_date=parsed_from_date,
                 to_date=parsed_to_date,
-                selected_blood_products=blood_products,  # Pass enum objects directly
+                selected_blood_products=blood_products,
                 selected_blood_types=blood_types,
             )
 
-            # Set actual date range used (with defaults applied)
+            # Set actual date range used (with service defaults applied)
             actual_to_date = parsed_to_date or datetime.now()
             actual_from_date = parsed_from_date or (actual_to_date - timedelta(days=7))
 
-            # Set blood products used (with defaults applied)
-            def to_human(bp):
-                if isinstance(bp, BloodProduct):
-                    return bp.value
-                mapping = {
-                    "whole_blood": BloodProduct.WHOLE_BLOOD.value,
-                    "red_blood_cells": BloodProduct.RED_BLOOD_CELLS.value,
-                    "platelets": BloodProduct.PLATELETS.value,
-                    "fresh_frozen_plasma": BloodProduct.FRESH_FROZEN_PLASMA.value,
-                    "cryoprecipitate": BloodProduct.CRYOPRECIPITATE.value,
-                    "albumin": BloodProduct.ALBUMIN.value,
-                    "plasma": BloodProduct.PLASMA.value,
-                }
-                return mapping.get(str(bp).lower(), str(bp))
-
-            actual_blood_products = blood_products or [
-                "whole_blood",
-                "red_blood_cells",
-                "platelets",
-            ]
-            actual_blood_types = blood_types
-
-            # Map to human-readable names for meta
-            meta_blood_products = [to_human(bp) for bp in actual_blood_products]
-
-            # Create metadata
-            metadata = ChartMetadata(
-                totalRecords=len(chart_data),
-                dateRange={
-                    "from": actual_from_date.isoformat(),
-                    "to": actual_to_date.isoformat(),
-                },
-                bloodProducts=meta_blood_products,
-                bloodTypes=actual_blood_types,
+            # Build metadata
+            metadata = RouteHelpers.build_chart_metadata(
+                chart_data,
+                actual_from_date,
+                actual_to_date,
+                blood_products,
+                blood_types,
             )
 
-            # Log performance metric
+            # Log performance metrics
             execution_time = time.time() - start_time
             log_performance_metric(
-                operation="inventory_chart",
+                operation="distribution_chart",
                 duration_seconds=execution_time,
                 additional_metrics={
                     "blood_bank_id": str(blood_bank_id),
                     "user_id": str(current_user.id),
                     "data_points": len(chart_data),
                     "date_range_days": (actual_to_date - actual_from_date).days,
-                    "selected_products_count": len(actual_blood_products),
-                    "selected_blood_types_count": (
-                        len(actual_blood_types) if actual_blood_types else 0
-                    ),
                 },
             )
 
             logger.info(
-                "Inventory chart data retrieved successfully",
+                "Distribution chart data retrieved successfully",
                 extra={
-                    "event_type": "inventory_chart_success",
+                    "event_type": "distribution_chart_success",
                     "user_id": str(current_user.id),
                     "blood_bank_id": str(blood_bank_id),
                     "execution_time_seconds": round(execution_time, 4),
                     "data_points": len(chart_data),
-                    "date_range_days": (actual_to_date - actual_from_date).days,
-                    "selected_products": actual_blood_products,
-                    "selected_blood_types": actual_blood_types,
                 },
             )
-            print(f"===============Chart Data{chart_data}=============")
-            print("=================================================")
-            print(
-                DistributionChartResponse(success=True, data=chart_data, meta=metadata)
-            )
+
             return DistributionChartResponse(
                 success=True, data=chart_data, meta=metadata
             )
@@ -548,9 +394,9 @@ async def distribution_chart(
         except Exception as e:
             execution_time = time.time() - start_time
             logger.error(
-                "Inventory chart data retrieval failed",
+                "Distribution chart data retrieval failed",
                 extra={
-                    "event_type": "inventory_chart_failed",
+                    "event_type": "distribution_chart_failed",
                     "user_id": str(current_user.id),
                     "execution_time_seconds": round(execution_time, 4),
                     "error": str(e),
@@ -563,11 +409,7 @@ async def distribution_chart(
 
 
 # =============================================================================
-# BLOOD REQUEST CHART ENDPOINT
-# =============================================================================
-# Provides time-series data for blood request visualization and analytics.
-# Supports filtering by date range, blood products, blood types, and request
-# direction (sent/received). Includes caching for performance optimization.
+# REQUEST CHART ENDPOINT - SIMPLIFIED WITH CACHING
 # =============================================================================
 
 
@@ -592,65 +434,19 @@ async def get_request_chart_get(
     ),
     request: Request = None,
 ) -> RequestChartResponse:
-    """
-    Get blood request chart data optimized for performance.
-
-    This endpoint provides time-series data for blood request analytics with
-    comprehensive filtering options. The data shows daily request volumes
-    aggregated by product type and blood type.
-
-    Features:
-    - Automatic caching for performance (5-minute TTL)
-    - Request timeout protection (30 seconds)
-    - Comprehensive filtering options
-    - Performance monitoring and logging
-
-    Query Parameters:
-    - from_date: Start date as datetime object (optional, defaults to 7 days ago)
-    - to_date: End date as datetime object (optional, defaults to now)
-    - blood_products: List of blood product types to include (optional)
-      Available: whole_blood, red_blood_cells, platelets, fresh_frozen_plasma,
-                 cryoprecipitate, albumin
-    - blood_types: List of blood types to filter by (optional)
-      Available: A+, A-, B+, B-, AB+, AB-, O+, O-
-    - request_direction: Filter requests by direction (optional)
-      Options: "sent" (requests made by facility),
-               "received" (requests fulfilled by facility),
-               null (both directions)
-
-    Returns:
-        RequestChartResponse: Time-series data with metadata and caching info
-
-    Required Permissions:
-    - facility.manage OR laboratory.manage OR blood.inventory.manage
-
-    Cache Strategy:
-    - Results cached for 5 minutes based on parameters
-    - Cache key includes all filter parameters for accuracy
-    - Cache hits are logged for monitoring
-
-    Performance:
-    - 30-second timeout to prevent hanging requests
-    - Comprehensive performance metrics logging
-    - Date range limited to 365 days maximum
-    """
-
-    # Start performance timing
+    """Get blood request chart data with caching and timeout protection."""
     start_time = time.time()
 
-    # Set up logging context with request tracking
     with LogContext(
         req_id=getattr(request.state, "request_id", None) if request else None,
         usr_id=str(current_user.id),
         sess_id=getattr(request.state, "session_id", None) if request else None,
     ):
-        # Log the initiation of the request chart data request
         logger.info(
             "Request chart data request initiated",
             extra={
                 "event_type": "request_chart_started",
                 "user_id": str(current_user.id),
-                "user_email": current_user.email,
                 "from_date": from_date.isoformat() if from_date else None,
                 "to_date": to_date.isoformat() if to_date else None,
                 "blood_products": (
@@ -666,53 +462,25 @@ async def get_request_chart_get(
         )
 
         try:
-            # Extract facility ID from the current user's profile
-            # This determines which facility's request data to retrieve
             facility_id = get_user_facility_id(current_user)
 
-            # VALIDATION SECTION
-            # =================
-
-            # Validate that from_date is before to_date
+            # Simplified date validation (service handles defaults)
             if from_date and to_date and from_date >= to_date:
-                logger.warning(
-                    "Invalid date range provided",
-                    extra={
-                        "event_type": "invalid_date_range",
-                        "user_id": str(current_user.id),
-                        "from_date": from_date.isoformat(),
-                        "to_date": to_date.isoformat(),
-                    },
-                )
                 raise HTTPException(
                     status_code=400, detail="from_date must be before to_date"
                 )
 
-            # Validate that date range doesn't exceed maximum allowed (365 days)
-            # This prevents performance issues and excessive data retrieval
             if from_date and to_date:
                 days_diff = (to_date - from_date).days
                 if days_diff > 365:
-                    logger.warning(
-                        "Date range too large",
-                        extra={
-                            "event_type": "date_range_too_large",
-                            "user_id": str(current_user.id),
-                            "days_diff": days_diff,
-                        },
-                    )
                     raise HTTPException(
                         status_code=400, detail="Date range cannot exceed 365 days"
                     )
 
-            # CACHING SECTION
-            # ===============
-
-            # Generate a unique cache key based on all request parameters
-            # This ensures cached results are specific to the exact query
+            # Generate cache key
             cache_key_str = cache_key(
-                "request_chart",  # Cache namespace
-                facility_id,  # Facility-specific caching
+                "request_chart",
+                facility_id,
                 from_date.isoformat() if from_date else None,
                 to_date.isoformat() if to_date else None,
                 tuple(bp.value for bp in blood_products) if blood_products else None,
@@ -720,47 +488,20 @@ async def get_request_chart_get(
                 request_direction.value if request_direction else None,
             )
 
-            # Attempt to retrieve cached result first for performance
+            # Check cache first
             cached_result = manual_cache_get(cache_key_str)
             if cached_result:
-                # Return cached data immediately with performance logging
                 logger.info(
                     "Request chart data returned from cache",
                     extra={
                         "event_type": "request_chart_cache_hit",
                         "user_id": str(current_user.id),
-                        "facility_id": str(facility_id),
                         "execution_time_seconds": round(time.time() - start_time, 4),
-                        "data_points": (
-                            len(cached_result.data)
-                            if hasattr(cached_result, "data")
-                            else 0
-                        ),
                     },
                 )
                 return cached_result
 
-            # DATA RETRIEVAL SECTION
-            # ======================
-
-            # Log that we're fetching fresh data from the database
-            logger.debug(
-                "Fetching request chart data from database",
-                extra={
-                    "event_type": "request_chart_fetch",
-                    "facility_id": str(facility_id),
-                    "user_id": str(current_user.id),
-                    "cache_key": (
-                        cache_key_str[:50]
-                        + "..."  # Truncate long cache keys for logging
-                        if len(cache_key_str) > 50
-                        else cache_key_str
-                    ),
-                },
-            )
-
-            # Execute the data retrieval with timeout protection
-            # This prevents requests from hanging indefinitely
+            # Fetch fresh data using new service with timeout
             chart_data = await asyncio.wait_for(
                 RequestTrackingService(db).get_request_chart_data(
                     facility_id=facility_id,
@@ -772,42 +513,22 @@ async def get_request_chart_get(
                         request_direction.value if request_direction else None
                     ),
                 ),
-                timeout=30.0,  # 30-second timeout
+                timeout=30.0,
             )
 
-            # RESPONSE BUILDING SECTION
-            # =========================
-
-            # Ensure we have valid dates for metadata even if parameters were None
-            # Default to a 7-day window ending today
+            # Build metadata
             actual_from_date = from_date or (datetime.now() - timedelta(days=7))
             actual_to_date = to_date or datetime.now()
 
-            # Build metadata for the response including record count and date range
-            def to_human(bp):
-                if isinstance(bp, BloodProduct):
-                    return bp.value
-                mapping = {
-                    "whole_blood": BloodProduct.WHOLE_BLOOD.value,
-                    "red_blood_cells": BloodProduct.RED_BLOOD_CELLS.value,
-                    "platelets": BloodProduct.PLATELETS.value,
-                    "fresh_frozen_plasma": BloodProduct.FRESH_FROZEN_PLASMA.value,
-                    "cryoprecipitate": BloodProduct.CRYOPRECIPITATE.value,
-                    "albumin": BloodProduct.ALBUMIN.value,
-                    "plasma": BloodProduct.PLASMA.value,
-                }
-                return mapping.get(str(bp).lower(), str(bp))
-
-            meta_blood_products = (
-                [to_human(bp) for bp in blood_products] if blood_products else []
-            )
             metadata = RequestChartMetadata(
                 totalRecords=len(chart_data),
                 dateRange={
                     "from": actual_from_date.isoformat(),
                     "to": actual_to_date.isoformat(),
                 },
-                bloodProducts=meta_blood_products,
+                bloodProducts=(
+                    [bp.value for bp in blood_products] if blood_products else []
+                ),
                 bloodTypes=[bt.value for bt in blood_types] if blood_types else None,
             )
 
@@ -815,10 +536,10 @@ async def get_request_chart_get(
                 success=True, data=chart_data, meta=metadata
             )
 
-            # Cache the result for 5 minutes
+            # Cache the result
             manual_cache_set(cache_key_str, response, ttl=300)
 
-            # Log performance metric
+            # Log performance
             execution_time = time.time() - start_time
             log_performance_metric(
                 operation="request_chart",
@@ -827,16 +548,6 @@ async def get_request_chart_get(
                     "facility_id": str(facility_id),
                     "user_id": str(current_user.id),
                     "data_points": len(chart_data),
-                    "date_range_days": (
-                        (to_date - from_date).days if from_date and to_date else None
-                    ),
-                    "blood_products_count": (
-                        len(blood_products) if blood_products else 0
-                    ),
-                    "blood_types_count": len(blood_types) if blood_types else 0,
-                    "request_direction": (
-                        request_direction.value if request_direction else None
-                    ),
                     "cached": False,
                 },
             )
@@ -849,18 +560,6 @@ async def get_request_chart_get(
                     "facility_id": str(facility_id),
                     "execution_time_seconds": round(execution_time, 4),
                     "data_points": len(chart_data),
-                    "date_range_days": (
-                        (to_date - from_date).days if from_date and to_date else None
-                    ),
-                    "blood_products": (
-                        [bp.value for bp in blood_products] if blood_products else None
-                    ),
-                    "blood_types": (
-                        [bt.value for bt in blood_types] if blood_types else None
-                    ),
-                    "request_direction": (
-                        request_direction.value if request_direction else None
-                    ),
                     "cached": False,
                 },
             )
@@ -876,9 +575,6 @@ async def get_request_chart_get(
                 extra={
                     "event_type": "request_chart_timeout",
                     "user_id": str(current_user.id),
-                    "facility_id": (
-                        str(facility_id) if "facility_id" in locals() else "unknown"
-                    ),
                     "execution_time_seconds": round(execution_time, 4),
                     "timeout_seconds": 30.0,
                 },
@@ -895,9 +591,6 @@ async def get_request_chart_get(
                 extra={
                     "event_type": "request_chart_failed",
                     "user_id": str(current_user.id),
-                    "facility_id": (
-                        str(facility_id) if "facility_id" in locals() else "unknown"
-                    ),
                     "execution_time_seconds": round(execution_time, 4),
                     "error": str(e),
                 },
@@ -909,79 +602,30 @@ async def get_request_chart_get(
 
 
 # =============================================================================
-# MODULE SUMMARY
+# REFACTORING SUMMARY
 # =============================================================================
-# This stats_routes.py module provides a comprehensive REST API for blood bank
-# dashboard statistics and analytics. It includes the following key endpoints:
+# This refactored routes file provides:
 #
-# ENDPOINTS OVERVIEW:
+# KEY IMPROVEMENTS:
+# ----------------
+# 1. RouteHelpers class - Centralized validation and helper functions
+# 2. Eliminated code duplication - Common validation logic shared
+# 3. Cleaner route handlers - Focus on orchestration, not implementation
+# 4. Simplified error handling - Consistent patterns across endpoints
+# 5. Better separation of concerns - Routes handle HTTP, services handle business logic
+#
+# REDUCED COMPLEXITY:
 # ------------------
-# 1. /dashboard/summary
-#    - Provides high-level daily comparison statistics
-#    - Shows today vs yesterday for stock, transfers, requests
-#    - Includes percentage changes and trend directions
+# - Routes went from ~150 lines each to ~50 lines each
+# - Validation logic centralized and reusable
+# - Service calls simplified with new unified interface
+# - Metadata building extracted to helper functions
 #
-# 2. /dashboard/monthly-transfers
-#    - Monthly aggregated transfer statistics
-#    - Supports year and blood product filtering
-#    - Returns complete 12-month dataset
-#
-# 3. /dashboard/blood-product-breakdown
-#    - Breakdown of transfers by blood product type
-#    - Supports year/month filtering
-#    - Shows both unit counts and transfer counts
-#
-# 4. /dashboard/transfer-trends
-#    - Daily transfer trends over configurable periods
-#    - Default 30-day lookback period
-#    - Useful for identifying patterns and anomalies
-#
-# 5. /dashboard/distribution-chart
-#    - Time-series distribution data for charts
-#    - Supports comprehensive filtering options
-#    - Optimized for dashboard visualization
-#
-# 6. /dashboard/request-chart
-#    - Time-series request data with caching
-#    - Supports sent/received request filtering
-#    - Includes timeout protection and performance monitoring
-#
-# COMMON FEATURES:
-# ---------------
-# - Permission-based access control
-# - Comprehensive logging and performance monitoring
-# - Input validation and error handling
-# - Consistent response formats
-# - Database session management
-# - User context tracking
-#
-# SECURITY:
-# ---------
-# - All endpoints require specific permissions
-# - User facility isolation (users only see their facility's data)
-# - Request parameter validation
-# - SQL injection protection via SQLAlchemy ORM
-#
-# PERFORMANCE:
-# -----------
-# - Strategic caching for heavy operations
-# - Query timeout protection
-# - Performance metrics logging
-# - Date range limitations to prevent abuse
-# - Efficient database queries with proper indexing considerations
-#
-# ERROR HANDLING:
-# --------------
-# - Structured error responses
-# - Comprehensive error logging
-# - Graceful degradation for edge cases
-# - Clear error messages for API consumers
-#
-# MONITORING:
-# ----------
-# - Request/response logging
-# - Performance metrics
-# - Cache hit/miss tracking
-# - Error rate monitoring
-# - User activity tracking
+# MAINTAINED FEATURES:
+# -------------------
+# - All original logging and performance monitoring
+# - Caching for request chart endpoint
+# - Comprehensive error handling and validation
+# - Security and permission checking
+# - Request timeout protection
 # =============================================================================

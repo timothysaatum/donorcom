@@ -1,24 +1,322 @@
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date, datetime, timedelta
-from typing import List, Dict, Any, Optional
-from app.models.request import (
-    BloodRequest,
-    DashboardDailySummary,
-)
-from app.models.distribution import BloodDistribution
+from typing import List, Dict, Any, Optional, Type
+from abc import ABC, abstractmethod
 import uuid
 from sqlalchemy.exc import SQLAlchemyError
 from app.utils.logging_config import get_logger
+from app.models.request import BloodRequest, DashboardDailySummary
+from app.models.distribution import BloodDistribution
+from app.schemas.base_schema import BloodProduct
 
 logger = get_logger(__name__)
 
 
-class StatsService:
-    """Class-based service for handling all statistics-related operations."""
+class BloodProductProcessor:
+    """Utility class for processing blood product selections and mappings."""
+
+    # Static mappings for blood product conversions
+    ENUM_TO_HUMAN = {
+        "Whole Blood": "Whole Blood",
+        "Red Blood Cells": "Red Blood Cells",
+        "Red Cells": "Red Blood Cells",
+        "Platelets": "Platelets",
+        "Fresh Frozen Plasma": "Fresh Frozen Plasma",
+        "Plasma": "Fresh Frozen Plasma",
+        "Cryoprecipitate": "Cryoprecipitate",
+        "Albumin": "Albumin",
+    }
+
+    SNAKE_CASE_TO_HUMAN = {
+        "whole_blood": "Whole Blood",
+        "red_blood_cells": "Red Blood Cells",
+        "platelets": "Platelets",
+        "fresh_frozen_plasma": "Fresh Frozen Plasma",
+        "cryoprecipitate": "Cryoprecipitate",
+        "albumin": "Albumin",
+    }
+
+    DEFAULT_PRODUCTS = ["Whole Blood", "Red Blood Cells", "Platelets"]
+
+    @classmethod
+    def process_blood_products(
+        cls, selected_blood_products: Optional[List]
+    ) -> List[str]:
+        """Process and validate blood product selections, returning human-readable names."""
+        if selected_blood_products is None:
+            return cls.DEFAULT_PRODUCTS.copy()
+
+        selected_products = []
+        for product in selected_blood_products:
+            if hasattr(product, "value"):  # BloodProduct enum
+                selected_products.append(product.value)
+            else:  # String
+                product_str = str(product).strip()
+                if product_str in cls.SNAKE_CASE_TO_HUMAN:
+                    selected_products.append(cls.SNAKE_CASE_TO_HUMAN[product_str])
+                else:
+                    # Try to normalize using BloodProduct
+                    try:
+                        normalized = BloodProduct.normalize_product_name(product_str)
+                        selected_products.append(normalized)
+                    except:
+                        logger.warning(f"Invalid blood product: {product_str}")
+                        continue
+
+        if not selected_products:
+            logger.warning("No valid blood products after processing, using defaults")
+            return cls.DEFAULT_PRODUCTS.copy()
+
+        return list(set(selected_products))  # Remove duplicates
+
+    @classmethod
+    def get_db_product_names(cls, selected_product_names: List[str]) -> List[str]:
+        """Map human-readable product names to database names, handling variants."""
+        db_names = []
+        for product_name in selected_product_names:
+            db_names.append(product_name)
+
+            # Add known variants
+            if product_name == "Red Blood Cells":
+                db_names.append("Red Cells")
+            elif product_name == "Fresh Frozen Plasma":
+                db_names.append("Plasma")
+
+        return db_names
+
+    @classmethod
+    def process_blood_types(
+        cls, selected_blood_types: Optional[List]
+    ) -> Optional[List[str]]:
+        """Process and validate blood type selections."""
+        if not selected_blood_types:
+            return None
+
+        blood_types = []
+        for bt in selected_blood_types:
+            if hasattr(bt, "value"):
+                blood_types.append(bt.value)
+            else:
+                blood_types.append(str(bt))
+        return blood_types
+
+
+class ChartDataBuilder:
+    """Utility class for building chart data from raw database results."""
+
+    @staticmethod
+    def build_chart_data(
+        raw_data: List,
+        from_date: datetime,
+        to_date: datetime,
+        selected_products: List[str],
+        date_field_names: List[str] = ["distribution_date", "request_date"],
+        value_field_names: List[str] = ["daily_received", "daily_requested"],
+    ) -> List[Dict[str, Any]]:
+        """Build chart data with only selected blood products."""
+
+        db_to_human = BloodProductProcessor.ENUM_TO_HUMAN
+
+        logger.info(f"Building chart for selected products: {selected_products}")
+
+        # Collect data by date for selected products only
+        data_by_date = {}
+        for row in raw_data:
+            # Extract date (handle different query result formats)
+            date_key = None
+            for field_name in date_field_names:
+                if hasattr(row, field_name):
+                    date_key = getattr(row, field_name)
+                    break
+            if not date_key and isinstance(row, (list, tuple)):
+                date_key = row[0]
+
+            if not date_key:
+                continue
+
+            # Extract product name and normalize it
+            db_product_name = getattr(row, "blood_product", None) or (
+                row[1] if isinstance(row, (list, tuple)) else None
+            )
+
+            human_product_name = db_to_human.get(db_product_name)
+
+            # Skip if product not in selected products
+            if not human_product_name or human_product_name not in selected_products:
+                continue
+
+            # Initialize date entry if needed
+            if date_key not in data_by_date:
+                data_by_date[date_key] = {}
+            if human_product_name not in data_by_date[date_key]:
+                data_by_date[date_key][human_product_name] = 0
+
+            # Extract quantity (handle different field names)
+            quantity = None
+            for field_name in value_field_names:
+                if hasattr(row, field_name):
+                    quantity = getattr(row, field_name)
+                    break
+            if quantity is None and isinstance(row, (list, tuple)) and len(row) > 3:
+                quantity = row[3]
+
+            data_by_date[date_key][human_product_name] += quantity or 0
+
+        # Generate chart data points
+        chart_data = []
+        current_date = from_date.date()
+        end_date = to_date.date()
+
+        while current_date <= end_date:
+            date_key = current_date.isoformat()
+            chart_point = {
+                "date": current_date.isoformat() + "T10:30:00Z",
+                "formattedDate": current_date.strftime("%b %d"),
+            }
+
+            day_data = data_by_date.get(date_key, {})
+
+            # Add ONLY the selected products
+            for product_name in selected_products:
+                chart_point[product_name] = day_data.get(product_name, 0)
+
+            chart_data.append(chart_point)
+            current_date += timedelta(days=1)
+
+        logger.info(
+            f"Generated {len(chart_data)} chart points with {len(selected_products)} products"
+        )
+        return chart_data
+
+
+class BaseChartService(ABC):
+    """Abstract base class for chart data services with common functionality."""
 
     def __init__(self, db: AsyncSession):
         self.db = db
+
+    def _validate_date_range(
+        self, from_date: Optional[datetime], to_date: Optional[datetime]
+    ) -> tuple[datetime, datetime]:
+        """Validate and set default date range."""
+        if to_date is None:
+            to_date = datetime.now().replace(
+                hour=23, minute=59, second=59, microsecond=999999
+            )
+        if from_date is None:
+            from_date = to_date - timedelta(days=7)
+            from_date = from_date.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        if from_date >= to_date:
+            raise ValueError("from_date must be before to_date")
+
+        date_diff = (to_date - from_date).days
+        if date_diff > 365:
+            raise ValueError("Date range cannot exceed 365 days")
+
+        return from_date, to_date
+
+    def _log_performance(
+        self, operation: str, start_time: datetime, data_count: int, raw_count: int
+    ):
+        """Log performance metrics."""
+        execution_time = (datetime.now() - start_time).total_seconds()
+        logger.info(
+            f"{operation} chart data generated: {data_count} points, "
+            f"{raw_count} raw records, {execution_time:.3f}s"
+        )
+
+    @abstractmethod
+    async def _build_query_conditions(
+        self,
+        facility_id: uuid.UUID,
+        from_date: datetime,
+        to_date: datetime,
+        db_product_names: List[str],
+        blood_types: Optional[List[str]],
+        **kwargs,
+    ) -> List:
+        """Build query conditions specific to the service."""
+        pass
+
+    @abstractmethod
+    async def _execute_query(self, query_conditions: List) -> List:
+        """Execute the database query specific to the service."""
+        pass
+
+    @abstractmethod
+    def _get_chart_data_builder_config(self) -> Dict[str, List[str]]:
+        """Get configuration for the chart data builder."""
+        pass
+
+    async def get_chart_data(
+        self,
+        facility_id: uuid.UUID,
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+        selected_blood_products: Optional[List] = None,
+        selected_blood_types: Optional[List] = None,
+        **kwargs,
+    ) -> List[Dict[str, Any]]:
+        """Generic method to get chart data."""
+        start_time = datetime.now()
+
+        try:
+            if not facility_id:
+                raise ValueError("facility_id is required")
+
+            # Validate and set date range
+            from_date, to_date = self._validate_date_range(from_date, to_date)
+
+            # Process blood products and types
+            selected_product_names = BloodProductProcessor.process_blood_products(
+                selected_blood_products
+            )
+            selected_blood_types_values = BloodProductProcessor.process_blood_types(
+                selected_blood_types
+            )
+
+            # Get database product names
+            db_product_names = BloodProductProcessor.get_db_product_names(
+                selected_product_names
+            )
+
+            # Build and execute query
+            query_conditions = await self._build_query_conditions(
+                facility_id,
+                from_date,
+                to_date,
+                db_product_names,
+                selected_blood_types_values,
+                **kwargs,
+            )
+
+            raw_data = await self._execute_query(query_conditions)
+
+            # Build chart data
+            builder_config = self._get_chart_data_builder_config()
+            chart_data = ChartDataBuilder.build_chart_data(
+                raw_data, from_date, to_date, selected_product_names, **builder_config
+            )
+
+            # Log performance
+            self._log_performance(
+                self.__class__.__name__, start_time, len(chart_data), len(raw_data)
+            )
+
+            return chart_data
+
+        except SQLAlchemyError as e:
+            logger.error(f"Database error in {self.__class__.__name__}: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in {self.__class__.__name__}: {str(e)}")
+            raise
+
+
+class StatsService(BaseChartService):
+    """Service for handling blood distribution statistics."""
 
     @staticmethod
     def calculate_change(today_value: int, yesterday_value: int) -> tuple[float, str]:
@@ -64,12 +362,11 @@ class StatsService:
                 "requests": {"value": 0, "change": 0.0, "direction": "neutral"},
             }
 
-        # Yesterday values (default to 0 if no data)
+        # Calculate changes
         y_stock = yesterday_summary.total_stock if yesterday_summary else 0
         y_transferred = yesterday_summary.total_transferred if yesterday_summary else 0
         y_requests = yesterday_summary.total_requests if yesterday_summary else 0
 
-        # Calculate changes
         stock_change, stock_dir = self.calculate_change(
             today_summary.total_stock, y_stock
         )
@@ -106,164 +403,27 @@ class StatsService:
         selected_blood_products: Optional[List] = None,
         selected_blood_types: Optional[List] = None,
     ) -> List[Dict[str, Any]]:
-        # TODO: Add caching to improve speed and performance
-        """
-        Get blood distribution data for chart visualization.
+        """Get blood distribution chart data."""
+        return await self.get_chart_data(
+            blood_bank_id,
+            from_date,
+            to_date,
+            selected_blood_products,
+            selected_blood_types,
+        )
 
-        Returns daily distribution amounts (not cumulative) for the specified date range.
-        """
-        start_time = datetime.now()
-
-        try:
-            # Input validation
-            if not blood_bank_id:
-                raise ValueError("blood_bank_id is required")
-
-            # Set default date range with reasonable limits
-            if to_date is None:
-                to_date = datetime.now().replace(
-                    hour=23, minute=59, second=59, microsecond=999999
-                )
-            if from_date is None:
-                from_date = to_date - timedelta(days=7)
-                from_date = from_date.replace(hour=0, minute=0, second=0, microsecond=0)
-
-            # Validate date range
-            if from_date >= to_date:
-                raise ValueError("from_date must be before to_date")
-
-            date_diff = (to_date - from_date).days
-            if date_diff > 365:  # Limit to 1 year
-                raise ValueError("Date range cannot exceed 365 days")
-
-            # Process blood products with validation
-            selected_blood_products_keys = await self._process_blood_products(
-                selected_blood_products
-            )
-            selected_blood_types_values = await self._process_blood_types(
-                selected_blood_types
-            )
-
-            # Get database product names efficiently
-            db_product_names = self._get_db_product_names(selected_blood_products_keys)
-
-            # Build and execute query
-            query_conditions = self._build_query_conditions(
-                blood_bank_id,
-                from_date,
-                to_date,
-                db_product_names,
-                selected_blood_types_values,
-            )
-
-            raw_data = await self._execute_distribution_query(query_conditions)
-
-            # Process results efficiently
-            chart_data = self._build_chart_data(
-                raw_data, from_date, to_date, selected_blood_products_keys
-            )
-
-            # Log performance metrics
-            execution_time = (datetime.now() - start_time).total_seconds()
-            logger.info(
-                f"Distribution chart data generated: {len(chart_data)} points, "
-                f"{len(raw_data)} raw records, {execution_time:.3f}s"
-            )
-
-            return chart_data
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error in get_distribution_chart_data: {str(e)}")
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error in get_distribution_chart_data: {str(e)}")
-            raise
-
-    async def _process_blood_products(
-        self, selected_blood_products: Optional[List]
-    ) -> List[str]:
-        """Process and validate blood product selections."""
-        if selected_blood_products is None:
-            return ["whole_blood", "red_blood_cells", "platelets"]
-
-        # Define valid mappings once
-        enum_to_key = {
-            "Whole Blood": "whole_blood",
-            "Red Blood Cells": "red_blood_cells",
-            "Red Cells": "red_blood_cells",
-            "Platelets": "platelets",
-            "Fresh Frozen Plasma": "fresh_frozen_plasma",
-            "Plasma": "fresh_frozen_plasma",
-            "Cryoprecipitate": "cryoprecipitate",
-            "Albumin": "albumin",
-        }
-
-        valid_keys = set(enum_to_key.values())
-        selected_keys = []
-
-        for product in selected_blood_products:
-            if hasattr(product, "value"):  # Enum
-                api_key = enum_to_key.get(product.value)
-                if not api_key:
-                    logger.warning(f"Unknown blood product enum: {product.value}")
-                    continue
-                selected_keys.append(api_key)
-            else:  # String
-                if product not in valid_keys:
-                    logger.warning(f"Invalid blood product key: {product}")
-                    continue
-                selected_keys.append(product)
-
-        if not selected_keys:
-            raise ValueError("No valid blood products selected")
-
-        return list(set(selected_keys))  # Remove duplicates
-
-    async def _process_blood_types(
-        self, selected_blood_types: Optional[List]
-    ) -> Optional[List[str]]:
-        """Process and validate blood type selections."""
-        if not selected_blood_types:
-            return None
-
-        blood_types = []
-        for bt in selected_blood_types:
-            if hasattr(bt, "value"):
-                blood_types.append(bt.value)
-            else:
-                blood_types.append(bt)
-
-        return blood_types
-
-    def _get_db_product_names(self, selected_keys: List[str]) -> List[str]:
-        """Map API keys to database product names efficiently."""
-        key_to_db_mapping = {
-            "whole_blood": ["Whole Blood"],
-            "red_blood_cells": ["Red Blood Cells", "Red Cells"],
-            "platelets": ["Platelets"],
-            "fresh_frozen_plasma": ["Fresh Frozen Plasma", "Plasma"],
-            "cryoprecipitate": ["Cryoprecipitate"],
-            "albumin": ["Albumin"],
-        }
-
-        db_names = []
-        for key in selected_keys:
-            if key in key_to_db_mapping:
-                db_names.extend(key_to_db_mapping[key])
-
-        return db_names
-
-    def _build_query_conditions(
+    async def _build_query_conditions(
         self,
-        blood_bank_id: uuid.UUID,
+        facility_id: uuid.UUID,
         from_date: datetime,
         to_date: datetime,
         db_product_names: List[str],
         blood_types: Optional[List[str]],
+        **kwargs,
     ) -> List:
-        """Build query conditions with proper indexing considerations."""
+        """Build query conditions for distribution data."""
         conditions = [
-            BloodDistribution.dispatched_from_id == blood_bank_id,  # Primary filter
+            BloodDistribution.dispatched_from_id == facility_id,
             BloodDistribution.date_delivered.is_not(None),
             BloodDistribution.date_delivered >= from_date,
             BloodDistribution.date_delivered <= to_date,
@@ -278,8 +438,8 @@ class StatsService:
 
         return conditions
 
-    async def _execute_distribution_query(self, query_conditions: List) -> List:
-        """Execute the distribution query with error handling."""
+    async def _execute_query(self, query_conditions: List) -> List:
+        """Execute the distribution query."""
         query = (
             select(
                 func.date(BloodDistribution.date_delivered).label("distribution_date"),
@@ -299,96 +459,16 @@ class StatsService:
         result = await self.db.execute(query)
         return result.fetchall()
 
-    def _build_chart_data(
-        self,
-        raw_data: List,
-        from_date: datetime,
-        to_date: datetime,
-        selected_keys: List[str],  # This argument is not needed, but keep for compatibility
-    ) -> List[Dict[str, Any]]:
-        """Build chart data with human-readable blood product names as keys."""
-
-        db_to_human = {
-            "Whole Blood": "Whole Blood",
-            "Red Blood Cells": "Red Blood Cells",
-            "Red Cells": "Red Blood Cells",
-            "Platelets": "Platelets",
-            "Fresh Frozen Plasma": "Fresh Frozen Plasma",
-            "Plasma": "Fresh Frozen Plasma",
-            "Cryoprecipitate": "Cryoprecipitate",
-            "Albumin": "Albumin",
+    def _get_chart_data_builder_config(self) -> Dict[str, List[str]]:
+        """Get configuration for the chart data builder."""
+        return {
+            "date_field_names": ["distribution_date"],
+            "value_field_names": ["daily_received"],
         }
-        canonical_products = [
-            "Whole Blood",
-            "Red Blood Cells",
-            "Platelets",
-            "Fresh Frozen Plasma",
-            "Cryoprecipitate",
-            "Albumin",
-        ]
-        # Only collect human-readable keys in data_by_date
-        data_by_date = {}
-        for row in raw_data:
-            date_key = (
-                getattr(row, "distribution_date", None)
-                or getattr(row, "request_date", None)
-                or (row[0] if isinstance(row, (list, tuple)) else None)
-            )
-            product = db_to_human.get(
-                getattr(row, "blood_product", None)
-                or (row[1] if isinstance(row, (list, tuple)) else None),
-                None,
-            )
-            if not product:
-                continue
-            if date_key not in data_by_date:
-                data_by_date[date_key] = {}
-            if product not in data_by_date[date_key]:
-                data_by_date[date_key][product] = 0
-            # Use correct field for value
-            value = (
-                getattr(row, "daily_received", None)
-                if hasattr(row, "daily_received")
-                else getattr(row, "daily_requested", None)
-            )
-            if value is None and isinstance(row, (list, tuple)):
-                value = row[3] if len(row) > 3 else 0
-            data_by_date[date_key][product] += value or 0
-        chart_data = []
-        current_date = from_date.date()
-        end_date = to_date.date()
-        while current_date <= end_date:
-            date_key = current_date.isoformat()
-            chart_point = {
-                "date": current_date.isoformat() + "T10:30:00Z",
-                "formattedDate": current_date.strftime("%b %d"),
-            }
-            day_data = data_by_date.get(date_key, {})
-            # Only add human-readable keys
-            for product in canonical_products:
-                chart_point[product] = day_data.get(product, 0)
-            print(f"=================={chart_point}===================")
-            # Remove any snake_case keys if present (defensive, but should not be needed)
-            for k in [
-                "whole_blood",
-                "red_blood_cells",
-                "platelets",
-                "fresh_frozen_plasma",
-                "cryoprecipitate",
-                "albumin",
-            ]:
-                chart_point.pop(k, None)
-            chart_data.append(chart_point)
-            current_date += timedelta(days=1)
-            print(f"=====================Chart Data: {chart_data}===================")
-        return chart_data
 
 
-class RequestTrackingService:
+class RequestTrackingService(BaseChartService):
     """Service for handling blood request tracking and analytics."""
-
-    def __init__(self, db):
-        self.db = db
 
     async def get_request_chart_data(
         self,
@@ -397,198 +477,45 @@ class RequestTrackingService:
         to_date: Optional[datetime] = None,
         selected_blood_products: Optional[List] = None,
         selected_blood_types: Optional[List] = None,
-        request_direction: Optional[str] = None,  # "sent", "received", or None for both
+        request_direction: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """
-        Get blood request data for chart visualization.
+        """Get blood request chart data."""
+        return await self.get_chart_data(
+            facility_id,
+            from_date,
+            to_date,
+            selected_blood_products,
+            selected_blood_types,
+            request_direction=request_direction,
+        )
 
-        Returns daily request amounts (not cumulative) for the specified date range.
-        Supports filtering by sent/received requests.
-        """
-        start_time = datetime.now()
-
-        try:
-            # Input validation
-            if not facility_id:
-                raise ValueError("facility_id is required")
-
-            # Set default date range with reasonable limits
-            if to_date is None:
-                to_date = datetime.now().replace(
-                    hour=23, minute=59, second=59, microsecond=999999
-                )
-            if from_date is None:
-                from_date = to_date - timedelta(days=7)
-                from_date = from_date.replace(hour=0, minute=0, second=0, microsecond=0)
-
-            # Validate date range
-            if from_date >= to_date:
-                raise ValueError("from_date must be before to_date")
-
-            date_diff = (to_date - from_date).days
-            if date_diff > 365:  # Limit to 1 year
-                raise ValueError("Date range cannot exceed 365 days")
-
-            # Process filters with validation
-            selected_blood_products_keys = await self._process_blood_products(
-                selected_blood_products
-            )
-            selected_blood_types_values = await self._process_blood_types(
-                selected_blood_types
-            )
-
-            # Get database product names efficiently
-            db_product_names = self._get_db_product_names(selected_blood_products_keys)
-
-            # Build and execute query
-            query_conditions = self._build_query_conditions(
-                facility_id,
-                from_date,
-                to_date,
-                db_product_names,
-                selected_blood_types_values,
-                request_direction,
-            )
-
-            raw_data = await self._execute_request_query(query_conditions)
-
-            # Process results efficiently
-            chart_data = self._build_chart_data(
-                raw_data, from_date, to_date, selected_blood_products_keys
-            )
-
-            # Log performance metrics
-            execution_time = (datetime.now() - start_time).total_seconds()
-            logger.info(
-                f"Request chart data generated: {len(chart_data)} points, "
-                f"{len(raw_data)} raw records, {execution_time:.3f}s, direction: {request_direction}"
-            )
-
-            return chart_data
-
-        except SQLAlchemyError as e:
-            logger.error(f"Database error in get_request_chart_data: {str(e)}")
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error in get_request_chart_data: {str(e)}")
-            raise
-
-    async def _process_blood_products(
-        self, selected_blood_products: Optional[List]
-    ) -> List[str]:
-        """Process and validate blood product selections."""
-        if selected_blood_products is None or len(selected_blood_products) == 0:
-            return ["whole_blood", "red_blood_cells", "platelets"]
-
-        # mapping to match your inventory schema
-        enum_to_key = {
-            "Whole Blood": "whole_blood",
-            "Red Blood Cells": "red_blood_cells",  # This matches your request data
-            "Red Cells": "red_blood_cells",  # Alternative name
-            "Platelets": "platelets",
-            "Fresh Frozen Plasma": "fresh_frozen_plasma",
-            "Plasma": "fresh_frozen_plasma",  # Alternative name
-            "Cryoprecipitate": "cryoprecipitate",
-            "Albumin": "albumin",
-        }
-        valid_keys = set(enum_to_key.values())
-        selected_keys = []
-
-        for product in selected_blood_products:
-            if hasattr(product, "value"):  # Enum
-                api_key = enum_to_key.get(product.value)
-                if not api_key:
-                    logger.warning(f"Unknown blood product enum: {product.value}")
-                    continue
-                selected_keys.append(api_key)
-            else:  # String
-                # Handle both API key format and database format
-                product_str = str(product).strip()
-                if product_str in valid_keys:
-                    # Direct API key match (e.g., "red_blood_cells")
-                    selected_keys.append(product_str)
-                elif product_str in enum_to_key:
-                    # Database format match (e.g., "Red Blood Cells")
-                    selected_keys.append(enum_to_key[product_str])
-                else:
-                    logger.warning(f"Invalid blood product key: {product_str}")
-                    continue
-
-        if not selected_keys:
-            logger.warning("No valid blood products after processing, using defaults")
-            return ["whole_blood", "red_blood_cells", "platelets"]
-        return list(set(selected_keys))  # Remove duplicates
-
-    async def _process_blood_types(
-        self, selected_blood_types: Optional[List]
-    ) -> Optional[List[str]]:
-        """Process and validate blood type selections."""
-        if not selected_blood_types:
-            return None
-
-        blood_types = []
-        for bt in selected_blood_types:
-            if hasattr(bt, "value"):
-                blood_types.append(bt.value)
-            else:
-                blood_types.append(bt)
-        return blood_types
-
-    def _get_db_product_names(self, selected_keys: List[str]) -> List[str]:
-        """Map API keys to database product names efficiently."""
-        # FIXED: Updated mapping to match your actual database values
-        key_to_db_mapping = {
-            "whole_blood": ["Whole Blood"],
-            "red_blood_cells": [
-                "Red Blood Cells",
-                "Red Cells",
-            ],  # Include both variants
-            "platelets": ["Platelets"],
-            "fresh_frozen_plasma": ["Fresh Frozen Plasma", "Plasma"],
-            "cryoprecipitate": ["Cryoprecipitate"],
-            "albumin": ["Albumin"],
-        }
-
-        db_names = []
-        for key in selected_keys:
-            if key in key_to_db_mapping:
-                db_names.extend(key_to_db_mapping[key])
-            else:
-                logger.warning(f"No database mapping found for API key: {key}")
-
-        logger.info(f"Mapped API keys {selected_keys} to DB names {db_names}")
-        return db_names
-
-    def _build_query_conditions(
+    async def _build_query_conditions(
         self,
         facility_id: uuid.UUID,
         from_date: datetime,
         to_date: datetime,
         db_product_names: List[str],
         blood_types: Optional[List[str]],
-        request_direction: Optional[str],
+        **kwargs,
     ) -> List:
-        """Build query conditions with proper indexing considerations."""
+        """Build query conditions for request data."""
+        request_direction = kwargs.get("request_direction")
+
         conditions = [
             BloodRequest.created_at >= from_date,
             BloodRequest.created_at <= to_date,
         ]
 
-        # Handle sent vs received requests using the new explicit facility relationships
+        # Handle request direction
         if request_direction == "sent":
-            # Sent requests: requests originating from this facility (source_facility_id)
             conditions.append(BloodRequest.source_facility_id == facility_id)
         elif request_direction == "received":
-            # Received requests: requests sent TO this facility (facility_id = target facility)
             conditions.append(BloodRequest.facility_id == facility_id)
         else:
-            # Both sent and received
             conditions.append(
                 or_(
-                    BloodRequest.source_facility_id
-                    == facility_id,  # Sent by this facility
-                    BloodRequest.facility_id
-                    == facility_id,  # Received by this facility
+                    BloodRequest.source_facility_id == facility_id,
+                    BloodRequest.facility_id == facility_id,
                 )
             )
 
@@ -597,10 +524,11 @@ class RequestTrackingService:
 
         if blood_types:
             conditions.append(BloodRequest.blood_type.in_(blood_types))
+
         return conditions
 
-    async def _execute_request_query(self, query_conditions: List) -> List:
-        """Execute the request query with error handling."""
+    async def _execute_query(self, query_conditions: List) -> List:
+        """Execute the request query."""
         query = (
             select(
                 func.date(BloodRequest.created_at).label("request_date"),
@@ -618,63 +546,11 @@ class RequestTrackingService:
         )
 
         result = await self.db.execute(query)
-        raw_data = result.fetchall()
-        return raw_data
+        return result.fetchall()
 
-    def _build_chart_data(
-        self,
-        raw_data: List,
-        from_date: datetime,
-        to_date: datetime,
-        selected_keys: List[str],  # This argument is not needed, but keep for compatibility
-    ) -> List[Dict[str, Any]]:
-        """Build chart data with human-readable blood product names as keys."""
-
-        db_to_human = {
-            "Whole Blood": "Whole Blood",
-            "Red Blood Cells": "Red Blood Cells",
-            "Red Cells": "Red Blood Cells",
-            "Platelets": "Platelets",
-            "Fresh Frozen Plasma": "Fresh Frozen Plasma",
-            "Plasma": "Fresh Frozen Plasma",
-            "Cryoprecipitate": "Cryoprecipitate",
-            "Albumin": "Albumin",
+    def _get_chart_data_builder_config(self) -> Dict[str, List[str]]:
+        """Get configuration for the chart data builder."""
+        return {
+            "date_field_names": ["request_date"],
+            "value_field_names": ["daily_requested"],
         }
-        canonical_products = [
-            "Whole Blood",
-            "Red Blood Cells",
-            "Platelets",
-            "Fresh Frozen Plasma",
-            "Cryoprecipitate",
-            "Albumin",
-        ]
-        data_by_date = {}
-        for row in raw_data:
-            date_key = row.request_date if hasattr(row, "request_date") else row[0]
-            product = db_to_human.get(
-                row.blood_product if hasattr(row, "blood_product") else row[1], None
-            )
-            if not product:
-                continue
-            if date_key not in data_by_date:
-                data_by_date[date_key] = {}
-            if product not in data_by_date[date_key]:
-                data_by_date[date_key][product] = 0
-            data_by_date[date_key][product] += (
-                row.daily_requested if hasattr(row, "daily_requested") else row[3] or 0
-            )
-        chart_data = []
-        current_date = from_date.date()
-        end_date = to_date.date()
-        while current_date <= end_date:
-            date_key = current_date.isoformat()
-            chart_point = {
-                "date": current_date.isoformat() + "T10:30:00Z",
-                "formattedDate": current_date.strftime("%b %d"),
-            }
-            day_data = data_by_date.get(date_key, {})
-            for product in canonical_products:
-                chart_point[product] = day_data.get(product, 0)
-            chart_data.append(chart_point)
-            current_date += timedelta(days=1)
-        return chart_data
