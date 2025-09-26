@@ -109,7 +109,7 @@ async def websocket_endpoint_alt(websocket: WebSocket):
                             user_id,
                             {
                                 "type": "echo",
-                                "message": f"You said: {data}",
+                                "message": data,
                                 "timestamp": datetime.now(timezone.utc).isoformat(),
                             },
                         )
