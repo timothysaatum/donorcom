@@ -191,8 +191,6 @@ class DeviceTrust(Base):
 
     def update_trust_score(self) -> int:
         """Recalculate and update trust score"""
-        from app.utils.device_identification import AdvancedDeviceIdentifier
-        from app.utils.device_identification import DeviceTrustData
 
         # Convert to DeviceTrustData for calculation
         trust_data = DeviceTrustData(

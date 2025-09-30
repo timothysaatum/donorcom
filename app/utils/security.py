@@ -8,7 +8,7 @@ from typing import Optional, Tuple
 import os
 import hashlib
 from app.models.rbac import Role
-from fastapi import Depends, HTTPException, status, WebSocket, Request
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -828,13 +828,15 @@ def verify_token_and_extract_data(token: str) -> dict:
 
 
 async def get_current_user(
-    db: AsyncSession = Depends(get_db),
-    token: str = Depends(oauth2_scheme),
-    request: Request = None,
-) -> User:
+        db: AsyncSession = Depends(get_db),
+        token: str = Depends(oauth2_scheme),
+        request: Request = None,
+    ) -> User:
     """Get current user with enhanced session validation"""
     try:
+        print("===================Access token:", token)
         payload = TokenManager.decode_token(token)
+        print("===================Decoded payload:", payload)
         user_id = payload.get("sub")
         session_id = payload.get("sid")  # Session ID from token
 
@@ -916,80 +918,6 @@ async def get_current_user(
             detail="Invalid authentication credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
-#WebSocket authentication with proper error handling
-async def get_current_user_ws(websocket: WebSocket, db: AsyncSession) -> User:
-    """WebSocket authentication with proper error handling"""
-    from app.models.user import User
-    from app.models.health_facility import Facility
-    from app.models.rbac import Role
-    from app.utils.security import TokenManager
-    from sqlalchemy.orm import selectinload
-    from uuid import UUID
-    import logging
-
-    logger = logging.getLogger(__name__)
-
-    try:
-        # Get token from cookies
-        token = websocket.cookies.get("access_token")
-        print("WebSocket token:", token)
-        if not token:
-            logger.warning("WebSocket authentication failed: No token provided")
-            await websocket.close(code=1008)
-            raise ValueError("No access token provided")
-
-        # Decode token
-        payload = TokenManager.decode_token(token)
-        user_id = payload.get("sub")
-
-        if not user_id:
-            logger.warning("WebSocket authentication failed: Invalid token payload")
-            await websocket.close(code=1008)
-            raise ValueError("Invalid token payload")
-
-        if payload.get("type") != "access":
-            logger.warning("WebSocket authentication failed: Invalid token type")
-            await websocket.close(code=1008)
-            raise ValueError("Invalid token type")
-
-        # Get user from database
-        from sqlalchemy import select
-
-        result = await db.execute(
-            select(User)
-            .options(
-                selectinload(User.roles).selectinload(Role.permissions),
-                selectinload(User.facility).selectinload(Facility.blood_bank),
-                selectinload(User.work_facility).selectinload(Facility.blood_bank),
-            )
-            .where(User.id == UUID(user_id))
-        )
-
-        user = result.scalar_one_or_none()
-        if not user:
-            logger.warning(f"WebSocket authentication failed: User {user_id} not found")
-            await websocket.close(code=1008)
-            raise ValueError("User not found")
-
-        # Check user status
-        if not user.is_active or not user.status or user.is_locked:
-            logger.warning(
-                f"WebSocket authentication failed: User {user_id} account inactive/locked"
-            )
-            await websocket.close(code=1008)
-            raise ValueError("Account inactive or locked")
-
-        logger.info(f"WebSocket authentication successful for user {user_id}")
-        return user
-
-    except Exception as e:
-        logger.error(f"WebSocket authentication error: {str(e)}")
-        try:
-            await websocket.close(code=1008)
-        except:
-            pass
-        raise
 
 
 async def cleanup_expired_refresh_tokens(db: AsyncSession) -> int:

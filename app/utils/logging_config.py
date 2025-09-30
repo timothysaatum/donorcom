@@ -4,7 +4,7 @@ import os
 import traceback
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 from pythonjsonlogger import jsonlogger
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from contextvars import ContextVar
 from functools import wraps
@@ -31,7 +31,7 @@ class ContextualJsonFormatter(jsonlogger.JsonFormatter):
         super().add_fields(log_record, record, message_dict)
         
         # Add timestamp in ISO format
-        log_record['timestamp'] = datetime.utcnow().isoformat() + 'Z'
+        log_record['timestamp'] = datetime.now(timezone.utc).isoformat() + 'Z'
         
         # Add environment
         log_record['environment'] = ENVIRONMENT

@@ -6,7 +6,7 @@ from sqlalchemy.future import select
 from app.models.request import BloodRequest
 from app.models.user import User
 from app.models.health_facility import Facility
-from app.services.notification_ws import manager
+from app.services.notification_sse import manager
 import logging
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,7 @@ class NotificationService:
                     "facility_name": facility.facility_name,
                     "timestamp": datetime.now(datetime.timezone.utc).isoformat(),
                     "priority": (
-                        "high" if sample_request.priority == "urgent" else "normal"
+                        "high" if sample_request.priority == "not_urgent" else "normal"
                     ),
                 }
 
@@ -112,14 +112,14 @@ class NotificationService:
             logger.error(f"Error sending status change notification: {str(e)}")
 
     async def _send_notification(self, user_id: UUID, notification: dict) -> None:
-        """Send notification via WebSocket and store in database"""
+        """Send notification via SSE and store in database"""
         try:
-            # Send via WebSocket if user is connected
+            # Send via SSE if user is connected
             success = await manager.send_personal_message(str(user_id), notification)
 
             if success:
                 logger.info(
-                    f"WebSocket notification sent to user {user_id}: {notification['title']}"
+                    f"SSE notification sent to user {user_id}: {notification['title']}"
                 )
             else:
                 logger.info(

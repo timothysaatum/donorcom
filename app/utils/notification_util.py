@@ -3,28 +3,25 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 from app.models.notification import Notification
-from app.services.notification_ws import ConnectionManager  
+from app.services.notification_sse import ConnectionManager
+
 logger = logging.getLogger(__name__)
 
 
 async def notify(db, user_id: UUID, title: str, message: str) -> None:
     """
-    Create a notification in DB and push it over WebSocket.
+    Create a notification in DB and push it over SSE.
     Fire-and-forget for real-time delivery without blocking.
     """
     try:
         # DB record
-        new_notification = Notification(
-            user_id=user_id,
-            title=title,
-            message=message
-        )
+        new_notification = Notification(user_id=user_id, title=title, message=message)
         db.add(new_notification)
 
         payload = {
             "title": title,
             "message": message,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
         # Commit to DB
