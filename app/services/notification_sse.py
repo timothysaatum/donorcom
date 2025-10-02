@@ -1,7 +1,7 @@
+from datetime import datetime, timezone
 from typing import Dict, List
 import asyncio
 import logging
-
 logger = logging.getLogger(__name__)
 
 
@@ -141,6 +141,18 @@ class ConnectionManager:
                 user_id: len(queues) for user_id, queues in self.sse_connections.items()
             },
         }
+
+    async def disconnect_user_by_permission_change(self, user_id: str):
+        """Force disconnect when permissions are revoked"""
+        if user_id in self.active_connections:
+            # Send termination event before closing
+            termination_event = {
+                "type": "connection_terminated",
+                "reason": "permissions_revoked",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            await self.send_personal_message(termination_event, user_id)
+            self.disconnect_sse(user_id, self.active_connections[user_id])
 
 
 # Create global manager instance

@@ -255,7 +255,7 @@ class BloodRequestService:
             priority=request.priority,
             cancellation_reason=request.cancellation_reason,
             requester_facility_name=requester_facility_name,
-            requester_name=request.full_name,
+            requester_name=request.requester.full_name,
             created_at=request.created_at,
             updated_at=request.updated_at,
         )

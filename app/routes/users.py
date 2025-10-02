@@ -1,6 +1,18 @@
 from app.utils.ip_address_finder import get_client_ip
-from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
-from app.schemas.user import (UserCreate, UserResponse, UserUpdate, UserWithFacility) 
+from fastapi import (
+    APIRouter, 
+    Depends, 
+    HTTPException, 
+    status, 
+    Response, 
+    Request
+)
+from app.schemas.user import (
+    UserCreate, 
+    UserResponse, 
+    UserUpdate, 
+    UserWithFacility
+) 
 from app.services.user_service import UserService
 from app.dependencies import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -453,18 +465,18 @@ async def options_me():
 
 @router.patch("/update-account/{user_id}", response_model=DataWrapper[UserResponse])
 async def update_user(
-    user_id: UUID,
-    user_data: UserUpdate,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(
+        user_id: UUID,
+        user_data: UserUpdate,
+        request: Request,
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(
         require_permission(
-            "staff.manage", 
-            "facility.manage", 
-            "laboratory.manage"
-        )
-    ),
-):
+                "staff.manage", 
+                "facility.manage", 
+                "laboratory.manage"
+            )
+        ),
+    ):
     """Update user account"""
     start_time = time.time()
     current_user_id = str(current_user.id)
@@ -596,13 +608,13 @@ async def update_user(
 
 @router.delete("/delete-account/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_account(
-    user_id: UUID,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission(
+        user_id: UUID,
+        request: Request,
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(require_permission(
         "staff.manage", "facility.manage", "laboratory.manage"
     )),
-):
+    ):
     """Delete user account with comprehensive logging"""
     start_time = time.time()
     current_user_id = str(current_user.id)

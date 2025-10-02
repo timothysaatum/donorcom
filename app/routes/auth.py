@@ -242,15 +242,13 @@ async def refresh_token(
     start_time = time.time()
 
     session_data = SessionManager.extract_device_info(request)
-    client_ip = session_data.get("client_ip")
-    user_agent = session_data.get("user_agent")
 
     logger.info(
         "Token refresh attempt started",
         extra={
             "event_type": "token_refresh_attempt",
-            "client_ip": client_ip,
-            "user_agent": user_agent,
+            "client_ip": session_data.get("client_ip"),
+            "user_agent": session_data.get("parsed_ua"),
         },
     )
 
@@ -263,7 +261,7 @@ async def refresh_token(
                 "reason": "no_refresh_token",
                 "duration_ms": (time.time() - start_time) * 1000,
             },
-            ip_address=client_ip,
+            ip_address=session_data.get("client_ip"),
         )
 
         logger.warning("Token refresh failed - no refresh token provided")
@@ -282,7 +280,7 @@ async def refresh_token(
                     "reason": "invalid_refresh_token",
                     "duration_ms": (time.time() - start_time) * 1000,
                 },
-                ip_address=client_ip,
+                ip_address=session_data.get("client_ip"),
             )
 
             logger.warning("Token refresh failed - invalid refresh token")
@@ -302,7 +300,7 @@ async def refresh_token(
                     "current_time": current_time.isoformat(),
                     "duration_ms": (time.time() - start_time) * 1000,
                 },
-                ip_address=client_ip,
+                ip_address=session_data.get("client_ip"),
             )
 
             logger.warning(
@@ -326,7 +324,7 @@ async def refresh_token(
                     "duration_ms": (time.time() - start_time) * 1000,
                 },
                 user_id=str(user_id),
-                ip_address=client_ip,
+                ip_address=session_data.get("client_ip"),
             )
 
             raise HTTPException(status_code=401, detail="User account is inactive")
@@ -347,10 +345,18 @@ async def refresh_token(
         refresh_token_record.usage_count += 1
 
         # Optional: Update device/IP info if they've changed
-        if refresh_token_record.ip_address != client_ip:
-            refresh_token_record.ip_address = client_ip
-        if refresh_token_record.device_info != user_agent:
-            refresh_token_record.device_info = user_agent
+        if refresh_token_record.ip_address != session_data.get("client_ip"):
+            refresh_token_record.ip_address = session_data.get("client_ip")
+        # Serialize device_info before storing
+        import json
+
+        device_info_str = (
+            json.dumps(session_data.get("parsed_ua"))
+            if session_data.get("parsed_ua")
+            else ""
+        )
+        if refresh_token_record.device_info != device_info_str:
+            refresh_token_record.device_info = device_info_str
 
         await db.commit()
 
@@ -389,7 +395,7 @@ async def refresh_token(
                 "session_id": str(session.id),
             },
             user_id=str(user_id),
-            ip_address=client_ip,
+            ip_address=session_data.get("client_ip"),
         )
 
         logger.info(
@@ -433,7 +439,7 @@ async def refresh_token(
                 "error": str(e),
                 "duration_ms": duration_ms,
             },
-            ip_address=client_ip,
+            ip_address=session_data.get("client_ip"),
         )
 
         raise HTTPException(status_code=500, detail="Internal server error")

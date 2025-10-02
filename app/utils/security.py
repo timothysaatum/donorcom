@@ -834,9 +834,7 @@ async def get_current_user(
     ) -> User:
     """Get current user with enhanced session validation"""
     try:
-        print("===================Access token:", token)
         payload = TokenManager.decode_token(token)
-        print("===================Decoded payload:", payload)
         user_id = payload.get("sub")
         session_id = payload.get("sid")  # Session ID from token
 

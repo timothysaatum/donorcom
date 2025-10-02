@@ -50,7 +50,7 @@ async def create_facility(
     """
         1. Create facility: A facility can only be added by the facility administrator
         2. A facility represents an entity that can request or issue blood to another facility
-        3. It be physically located and posses officially recognized licenses from the appropriate regulating bodies
+        3. It has to be physically located and posses officially recognized licenses from the appropriate regulating bodies
     
     """
     start_time = time.time()
@@ -169,12 +169,11 @@ async def create_facility(
 )
 @log_function_call(include_args=False, level="INFO")
 async def create_facility_with_blood_bank(
-    data: FacilityWithBloodBankCreate,
+    facility_data: FacilityWithBloodBankCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_permission(
-        "facility.manage"
-    ))):
+    current_user: User = Depends(require_permission("facility.manage")),
+):
     """Create facility with blood bank and comprehensive logging"""
     start_time = time.time()
     current_user_id = str(current_user.id)
@@ -186,18 +185,17 @@ async def create_facility_with_blood_bank(
         extra={
             "event_type": "facility_with_blood_bank_creation_attempt",
             "current_user_id": current_user_id,
-            "facility_name": data.facility_name,
-            "blood_bank_requested": bool(data.blood_bank),
+            "facility_name": facility_data.facility_name,
+            "blood_bank_requested": bool(facility_data.blood_bank),
             "client_ip": client_ip,
-            "user_agent": user_agent
-        }
+            "user_agent": user_agent,
+        },
     )
 
     try:
         facility_service = FacilityService(db)
         result = await facility_service.create_facility_with_blood_bank(
-            data=data,
-            facility_manager_id=current_user.id
+            data=facility_data, facility_manager_id=current_user.id
         )
 
         # Calculate duration
@@ -210,29 +208,27 @@ async def create_facility_with_blood_bank(
         log_security_event(
             event_type="facility_with_blood_bank_created",
             details={
-                "facility_name": data.facility_name,
+                "facility_name": facility_data.facility_name,
                 "facility_id": str(result.id),
                 "blood_bank_created": blood_bank_created,
-                "duration_ms": duration_ms
+                "duration_ms": duration_ms,
             },
             user_id=current_user_id,
-            ip_address=client_ip
+            ip_address=client_ip,
         )
 
         # Prepare audit values
         new_values = {
-            "facility_name": data.facility_name,
-            "facility_address": data.facility_digital_address,
+            "facility_name": facility_data.facility_name,
+            "facility_address": facility_data.facility_digital_address,
             "facility_manager_id": current_user_id,
-            "facility_phone": data.facility_contact_number,
-            "facility_email": data.facility_email,
-            "blood_bank_created": blood_bank_created
+            "facility_phone": facility_data.facility_contact_number,
+            "facility_email": facility_data.facility_email,
+            "blood_bank_created": blood_bank_created,
         }
 
-        if blood_bank_created and data.blood_bank:
-            new_values.update({
-                "blood_bank_name": data.blood_bank
-            })
+        if blood_bank_created and facility_data.blood_bank:
+            new_values.update({"blood_bank_name": facility_data.blood_bank})
 
         log_audit_event(
             action="create",
@@ -248,10 +244,10 @@ async def create_facility_with_blood_bank(
                 "event_type": "facility_with_blood_bank_created",
                 "facility_id": str(result.id),
                 "current_user_id": current_user_id,
-                "facility_name": data.facility_name,
+                "facility_name": facility_data.facility_name,
                 "blood_bank_created": blood_bank_created,
-                "duration_ms": duration_ms
-            }
+                "duration_ms": duration_ms,
+            },
         )
 
         # Log performance metric for slow operations
@@ -262,7 +258,7 @@ async def create_facility_with_blood_bank(
                 additional_metrics={
                     "slow_operation": True,
                     "blood_bank_included": blood_bank_created,
-                    "facility_type": data.facility_name,
+                    "facility_type": facility_data.facility_name,
                 },
             )
 
@@ -280,11 +276,11 @@ async def create_facility_with_blood_bank(
             extra={
                 "event_type": "facility_with_blood_bank_creation_error",
                 "current_user_id": current_user_id,
-                "facility_name": data.facility_name,
+                "facility_name": facility_data.facility_name,
                 "error": str(e),
-                "duration_ms": duration_ms
+                "duration_ms": duration_ms,
             },
-            exc_info=True
+            exc_info=True,
         )
 
         log_security_event(
@@ -292,11 +288,11 @@ async def create_facility_with_blood_bank(
             details={
                 "reason": "unexpected_error",
                 "error": str(e),
-                "facility_name": data.facility_name,
-                "duration_ms": duration_ms
+                "facility_name": facility_data.facility_name,
+                "duration_ms": duration_ms,
             },
             user_id=current_user_id,
-            ip_address=client_ip
+            ip_address=client_ip,
         )
 
         raise HTTPException(status_code=500, detail="Facility with blood bank creation failed")
@@ -324,13 +320,16 @@ async def get_facility_by_id(
 
     try:
         # Eagerly load the facility_manager relationship
-        result = await db.execute(
-            select(Facility)
-            .options(selectinload(Facility.facility_manager))
-            .where(Facility.id == facility_id)
-        )
+        # result = await db.execute(
+        #     select(Facility)
+        #     .options(selectinload(Facility.facility_manager))
+        #     .where(Facility.id == facility_id)
+        # )
+        facility_service = FacilityService(db)
 
-        facility = result.scalar_one_or_none()
+        facility = await facility_service.get_facility(facility_id)
+
+        # facility = result.scalar_one_or_none()
 
         if not facility:
             log_security_event(
