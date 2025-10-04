@@ -7,9 +7,11 @@ name = "donorcom-api"
 version = "0.1.0"
 description = "A blood distribution and management system"
 requires-python = ">=3.12"
-
 authors = [
     { name = "Timothy Saatum", email = "timothysaatum@example.com" }
 ]
+license = "MIT"
 
-license = { text = "MIT" }
+# Disable automatic package discovery (prevents multi-package error)
+[tool.setuptools]
+packages = []
