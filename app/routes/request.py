@@ -634,7 +634,8 @@ async def get_blood_request(
             },
         )
 
-        return BloodRequestResponse.from_orm_with_facility_names(blood_request)
+        # Use the safe conversion method instead
+        return service._fast_convert_to_response(blood_request)
 
     except HTTPException:
         raise
@@ -1115,12 +1116,10 @@ async def respond_to_request(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
         require_permission(
-            "facility.manage", 
-            "laboratory.manage", 
-            "blood.inventory.manage"
-            )
-        ),
-    ):
+            "facility.manage", "laboratory.manage", "blood.inventory.manage"
+        )
+    ),
+):
     """Allow facility staff to respond to a blood request"""
     start_time = time.time()
     current_user_id = str(current_user.id)
@@ -1243,8 +1242,8 @@ async def respond_to_request(
                 },
             )
 
-        # Convert to response model properly
-        return BloodRequestResponse.from_orm_with_facility_names(updated_request)
+        # Use the safe conversion method instead
+        return service._fast_convert_to_response(updated_request)
 
     except HTTPException:
         raise
@@ -1275,7 +1274,7 @@ async def respond_to_request(
             ip_address=client_ip,
         )
 
-        raise HTTPException(status_code=500, detail="Failed to respond to request")
+        raise HTTPException(status_code=500, detail=f"Failed to respond to request{str(e)}")
 
 
 @router.patch("/{request_id}/cancel", response_model=BloodRequestResponse)
@@ -1443,8 +1442,8 @@ async def cancel_blood_request(
                 },
             )
 
-        # Return the cancelled request using the established pattern
-        return BloodRequestResponse.from_orm_with_facility_names(cancelled_request)
+        # Use the safe conversion method instead
+        return service._fast_convert_to_response(cancelled_request)
 
     except HTTPException:
         raise
@@ -1701,9 +1700,8 @@ async def get_requests_between_facilities(
             source_facility_id, target_facility_id, limit, offset
         )
 
-        return [
-            BloodRequestResponse.from_orm_with_facility_names(req) for req in requests
-        ]
+        # Use the safe conversion method instead
+        return [service._fast_convert_to_response(req) for req in requests]
 
     except Exception as e:
         logger.error(

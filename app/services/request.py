@@ -470,11 +470,21 @@ class BloodRequestService:
                 f"Created {len(created_requests)} blood requests with group ID: {request_group_id}"
             )
 
+            # Convert to response objects using safe method
+            request_responses = [
+                self._fast_convert_to_response(r) for r in refreshed_requests
+            ]
+
+            # Convert to dictionaries to prevent any ORM access during serialization
+            request_response_dicts = [resp.model_dump() for resp in request_responses]
+
+            # Create response with pure dict data
             return BloodRequestBulkCreateResponse(
                 request_group_id=request_group_id,
                 total_requests_created=len(created_requests),
                 requests=[
-                    self._fast_convert_to_response(r) for r in refreshed_requests
+                    BloodRequestResponse(**req_dict)
+                    for req_dict in request_response_dicts
                 ],
                 message=f"Successfully created requests to {len(created_requests)} facilities",
             )
@@ -526,6 +536,9 @@ class BloodRequestService:
             .options(
                 selectinload(BloodRequest.target_facility),
                 selectinload(BloodRequest.source_facility),
+                selectinload(BloodRequest.requester).options(
+                    selectinload(User.facility), selectinload(User.work_facility)
+                ),
             )
             .where(BloodRequest.request_group_id == request_group_id)
             .order_by(BloodRequest.is_master_request.desc(), BloodRequest.created_at)
@@ -543,7 +556,7 @@ class BloodRequestService:
                 status_code=404, detail="Master request not found in group"
             )
 
-        # OPTIMIZATION: Count statuses in single pass - FIXED
+        # Count statuses in single pass
         status_counts = {
             "pending": 0,
             "approved": 0,
@@ -555,14 +568,12 @@ class BloodRequestService:
         unique_facilities = set()
 
         for r in requests:
-            # Fix: Get the actual status value
             status = (
                 r.request_status.value.lower()
                 if hasattr(r.request_status, "value")
                 else str(r.request_status).lower()
             )
 
-            # Count statuses
             if status == "pending":
                 status_counts["pending"] += 1
             elif status in ["approved", "accepted"]:
@@ -574,13 +585,12 @@ class BloodRequestService:
             elif status == "cancelled":
                 status_counts["cancelled"] += 1
 
-            # Track unique facilities
             unique_facilities.add(r.facility_id)
 
-        # Convert ORM objects to response models
-        master_request_response = BloodRequestResponse.model_validate(master_request)
+        # Use the SAFE conversion method instead of model_validate
+        master_request_response = self._fast_convert_to_response(master_request)
         related_requests_response = [
-            BloodRequestResponse.model_validate(r) for r in related_requests
+            self._fast_convert_to_response(r) for r in related_requests
         ]
 
         return BloodRequestGroupResponse(
@@ -812,12 +822,14 @@ class BloodRequestService:
         self, user_id: UUID
     ) -> List[BloodRequestGroupResponse]:
         """List request groups by user - OPTIMIZED"""
-        # OPTIMIZATION: Single query to get all requests for user, then group in memory
         result = await self.db.execute(
             select(BloodRequest)
             .options(
                 selectinload(BloodRequest.target_facility),
                 selectinload(BloodRequest.source_facility),
+                selectinload(BloodRequest.requester).options(
+                    selectinload(User.facility), selectinload(User.work_facility)
+                ),
             )
             .where(BloodRequest.requester_id == user_id)
             .order_by(BloodRequest.request_group_id.desc(), BloodRequest.created_at)
@@ -840,29 +852,26 @@ class BloodRequestService:
             )
             related_requests = [r for r in group_requests if not r.is_master_request]
 
-            # FIXED: Count statuses efficiently with correct field names
             status_counts = {
                 "pending": 0,
-                "approved": 0,  # Changed from 'accepted'
+                "approved": 0,
                 "rejected": 0,
-                "fulfilled": 0,  # Added missing field
+                "fulfilled": 0,
                 "cancelled": 0,
             }
 
             unique_facilities = set()
 
             for r in group_requests:
-                # Get status value properly
                 status = (
                     r.request_status.value.lower()
                     if hasattr(r.request_status, "value")
                     else str(r.request_status).lower()
                 )
 
-                # Count statuses (handle mapping if needed)
                 if status == "pending":
                     status_counts["pending"] += 1
-                elif status in ["approved", "accepted"]:  # Handle both possibilities
+                elif status in ["approved", "accepted"]:
                     status_counts["approved"] += 1
                 elif status == "rejected":
                     status_counts["rejected"] += 1
@@ -871,15 +880,12 @@ class BloodRequestService:
                 elif status == "cancelled":
                     status_counts["cancelled"] += 1
 
-                # Track unique facilities
                 unique_facilities.add(r.facility_id)
 
-            # Convert ORM objects to response models
-            master_request_response = BloodRequestResponse.model_validate(
-                master_request
-            )
+            # Use the SAFE conversion method instead of model_validate
+            master_request_response = self._fast_convert_to_response(master_request)
             related_requests_response = [
-                BloodRequestResponse.model_validate(r) for r in related_requests
+                self._fast_convert_to_response(r) for r in related_requests
             ]
 
             group_response = BloodRequestGroupResponse(
