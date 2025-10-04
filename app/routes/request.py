@@ -148,8 +148,8 @@ async def create_blood_request(
             ip_address=client_ip,
         )
 
-        raise HTTPException(status_code=500, detail="Blood request creation failed")
-
+        raise HTTPException(status_code=500, detail=f"Blood request creation failed{str(e)}")
+    
 
 @router.get("/my-requests", response_model=List[BloodRequestResponse])
 async def list_my_requests(
