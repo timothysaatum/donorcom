@@ -237,6 +237,15 @@ class BloodRequestService:
                 source_facility_name = name if name else "Unknown Facility"
                 self._facility_name_cache[source_key] = source_facility_name
 
+        # Safely get requester name - check if requester is loaded and has full_name
+        requester_name = "Unknown User"
+        if request.requester:
+            # Check if full_name attribute exists and is not None
+            requester_name = (
+                getattr(request.requester, "full_name", "Unknown User")
+                or "Unknown User"
+            )
+
         return BloodRequestResponse(
             id=request.id,
             requester_id=request.requester_id,
@@ -254,7 +263,7 @@ class BloodRequestService:
             priority=request.priority,
             cancellation_reason=request.cancellation_reason,
             requester_facility_name=requester_facility_name,
-            requester_name=request.requester.full_name,
+            requester_name=requester_name,
             created_at=request.created_at,
             updated_at=request.updated_at,
         )
