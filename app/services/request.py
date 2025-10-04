@@ -201,88 +201,135 @@ class BloodRequestService:
 
     def _fast_convert_to_response(self, request: BloodRequest) -> BloodRequestResponse:
         """Optimized conversion with minimal overhead - COMPLETELY SAFE VERSION"""
-        
+
         # Safely extract all needed values without ANY lazy loading
         receiving_facility_name = "Unknown Facility"
         source_facility_name = "Unknown Facility"
         requester_facility_name = None
         requester_name = "Unknown User"
-        
+
+        # Initialize request_dict at the start
+        request_dict = request.__dict__
+
         try:
-            # Use __dict__ to access loaded relationships without triggering lazy loads
-            request_dict = request.__dict__
-            
             # Check if target_facility is in __dict__ (loaded)
-            if 'target_facility' in request_dict:
-                target_fac = request_dict['target_facility']
-                if target_fac is not None and hasattr(target_fac, '__dict__'):
+            if (
+                "target_facility" in request_dict
+                and request_dict["target_facility"] is not None
+            ):
+                target_fac = request_dict["target_facility"]
+                if hasattr(target_fac, "__dict__"):
                     target_fac_dict = target_fac.__dict__
-                    if 'facility_name' in target_fac_dict and target_fac_dict['facility_name']:
-                        receiving_facility_name = str(target_fac_dict['facility_name']).strip() or "Unknown Facility"
-            
+                    if (
+                        "facility_name" in target_fac_dict
+                        and target_fac_dict["facility_name"]
+                    ):
+                        receiving_facility_name = (
+                            str(target_fac_dict["facility_name"]).strip()
+                            or "Unknown Facility"
+                        )
+
             # Check if source_facility is in __dict__
-            if 'source_facility' in request_dict:
-                source_fac = request_dict['source_facility']
-                if source_fac is not None and hasattr(source_fac, '__dict__'):
+            if (
+                "source_facility" in request_dict
+                and request_dict["source_facility"] is not None
+            ):
+                source_fac = request_dict["source_facility"]
+                if hasattr(source_fac, "__dict__"):
                     source_fac_dict = source_fac.__dict__
-                    if 'facility_name' in source_fac_dict and source_fac_dict['facility_name']:
-                        source_facility_name = str(source_fac_dict['facility_name']).strip() or "Unknown Facility"
-            
+                    if (
+                        "facility_name" in source_fac_dict
+                        and source_fac_dict["facility_name"]
+                    ):
+                        source_facility_name = (
+                            str(source_fac_dict["facility_name"]).strip()
+                            or "Unknown Facility"
+                        )
+
             # Check if requester is in __dict__
-            if 'requester' in request_dict:
-                requester = request_dict['requester']
-                if requester is not None and hasattr(requester, '__dict__'):
+            if "requester" in request_dict and request_dict["requester"] is not None:
+                requester = request_dict["requester"]
+                if hasattr(requester, "__dict__"):
                     requester_dict = requester.__dict__
-                    
+
                     # Try to get full_name from __dict__ ONLY
-                    # DO NOT call any methods or properties
-                    if 'full_name' in requester_dict and requester_dict['full_name']:
-                        requester_name = str(requester_dict['full_name']) or "Unknown User"
+                    if "full_name" in requester_dict and requester_dict["full_name"]:
+                        requester_name = (
+                            str(requester_dict["full_name"]) or "Unknown User"
+                        )
                     else:
-                        # Fallback: construct from first_name and last_name if available in __dict__
-                        first_name = requester_dict.get('first_name', '')
-                        last_name = requester_dict.get('last_name', '')
+                        # Fallback: construct from first_name and last_name
+                        first_name = requester_dict.get("first_name", "")
+                        last_name = requester_dict.get("last_name", "")
                         if first_name or last_name:
-                            requester_name = f"{first_name} {last_name}".strip() or "Unknown User"
-                    
+                            requester_name = (
+                                f"{first_name} {last_name}".strip() or "Unknown User"
+                            )
+
                     # Get requester facility name
-                    if 'facility' in requester_dict:
-                        req_fac = requester_dict['facility']
-                        if req_fac is not None and hasattr(req_fac, '__dict__'):
+                    if (
+                        "facility" in requester_dict
+                        and requester_dict["facility"] is not None
+                    ):
+                        req_fac = requester_dict["facility"]
+                        if hasattr(req_fac, "__dict__"):
                             req_fac_dict = req_fac.__dict__
-                            if 'facility_name' in req_fac_dict and req_fac_dict['facility_name']:
-                                requester_facility_name = str(req_fac_dict['facility_name']).strip() or None
-                    elif 'work_facility' in requester_dict:
-                        work_fac = requester_dict['work_facility']
-                        if work_fac is not None and hasattr(work_fac, '__dict__'):
+                            if (
+                                "facility_name" in req_fac_dict
+                                and req_fac_dict["facility_name"]
+                            ):
+                                requester_facility_name = (
+                                    str(req_fac_dict["facility_name"]).strip() or None
+                                )
+                    elif (
+                        "work_facility" in requester_dict
+                        and requester_dict["work_facility"] is not None
+                    ):
+                        work_fac = requester_dict["work_facility"]
+                        if hasattr(work_fac, "__dict__"):
                             work_fac_dict = work_fac.__dict__
-                            if 'facility_name' in work_fac_dict and work_fac_dict['facility_name']:
-                                requester_facility_name = str(work_fac_dict['facility_name']).strip() or None
-        
+                            if (
+                                "facility_name" in work_fac_dict
+                                and work_fac_dict["facility_name"]
+                            ):
+                                requester_facility_name = (
+                                    str(work_fac_dict["facility_name"]).strip() or None
+                                )
+
         except Exception as e:
             logger.error(f"Error in _fast_convert_to_response: {e}", exc_info=True)
-        
+
         # Build response using only primitive values from the ORM object
         return BloodRequestResponse(
-            id=request_dict.get('id', request.id),
-            requester_id=request_dict.get('requester_id', request.requester_id),
-            facility_id=request_dict.get('facility_id', request.facility_id),
-            source_facility_id=request_dict.get('source_facility_id', request.source_facility_id),
+            id=request_dict.get("id", request.id),
+            requester_id=request_dict.get("requester_id", request.requester_id),
+            facility_id=request_dict.get("facility_id", request.facility_id),
+            source_facility_id=request_dict.get(
+                "source_facility_id", request.source_facility_id
+            ),
             receiving_facility_name=receiving_facility_name,
             source_facility_name=source_facility_name,
-            request_group_id=request_dict.get('request_group_id', request.request_group_id),
-            blood_type=request_dict.get('blood_type', request.blood_type),
-            blood_product=request_dict.get('blood_product', request.blood_product),
-            quantity_requested=request_dict.get('quantity_requested', request.quantity_requested),
-            request_status=request_dict.get('request_status', request.request_status),
-            processing_status=request_dict.get('processing_status', request.processing_status),
-            notes=request_dict.get('notes', request.notes),
-            priority=request_dict.get('priority', request.priority),
-            cancellation_reason=request_dict.get('cancellation_reason', request.cancellation_reason),
+            request_group_id=request_dict.get(
+                "request_group_id", request.request_group_id
+            ),
+            blood_type=request_dict.get("blood_type", request.blood_type),
+            blood_product=request_dict.get("blood_product", request.blood_product),
+            quantity_requested=request_dict.get(
+                "quantity_requested", request.quantity_requested
+            ),
+            request_status=request_dict.get("request_status", request.request_status),
+            processing_status=request_dict.get(
+                "processing_status", request.processing_status
+            ),
+            notes=request_dict.get("notes", request.notes),
+            priority=request_dict.get("priority", request.priority),
+            cancellation_reason=request_dict.get(
+                "cancellation_reason", request.cancellation_reason
+            ),
             requester_facility_name=requester_facility_name,
             requester_name=requester_name,
-            created_at=request_dict.get('created_at', request.created_at),
-            updated_at=request_dict.get('updated_at', request.updated_at),
+            created_at=request_dict.get("created_at", request.created_at),
+            updated_at=request_dict.get("updated_at", request.updated_at),
         )
 
     @performance_monitor
@@ -499,9 +546,9 @@ class BloodRequestService:
         # OPTIMIZATION: Count statuses in single pass - FIXED
         status_counts = {
             "pending": 0,
-            "approved": 0,  # Changed from 'accepted'
+            "approved": 0,
             "rejected": 0,
-            "fulfilled": 0,  # Added missing count
+            "fulfilled": 0,
             "cancelled": 0,
         }
 
@@ -510,17 +557,25 @@ class BloodRequestService:
         for r in requests:
             # Fix: Get the actual status value
             status = (
-                r.request_status.value
+                r.request_status.value.lower()
                 if hasattr(r.request_status, "value")
                 else str(r.request_status).lower()
             )
 
-        # Count statuses
-        if status in status_counts:
-            status_counts[status] += 1
+            # Count statuses
+            if status == "pending":
+                status_counts["pending"] += 1
+            elif status in ["approved", "accepted"]:
+                status_counts["approved"] += 1
+            elif status == "rejected":
+                status_counts["rejected"] += 1
+            elif status == "fulfilled":
+                status_counts["fulfilled"] += 1
+            elif status == "cancelled":
+                status_counts["cancelled"] += 1
 
-        # Track unique facilities
-        unique_facilities.add(r.facility_id)
+            # Track unique facilities
+            unique_facilities.add(r.facility_id)
 
         # Convert ORM objects to response models
         master_request_response = BloodRequestResponse.model_validate(master_request)
@@ -532,13 +587,11 @@ class BloodRequestService:
             request_group_id=request_group_id,
             blood_type=master_request.blood_type,
             blood_product=master_request.blood_product,
-            quantity_requested=sum(
-                r.quantity_requested for r in requests
-            ),  # Sum all requests
+            quantity_requested=sum(r.quantity_requested for r in requests),
             notes=master_request.notes,
-            master_request=master_request_response,  # Convert to response model
-            related_requests=related_requests_response,  # Convert to response models
-            total_facilities=len(unique_facilities),  # Count unique facilities
+            master_request=master_request_response,
+            related_requests=related_requests_response,
+            total_facilities=len(unique_facilities),
             pending_count=status_counts["pending"],
             approved_count=status_counts["approved"],
             rejected_count=status_counts["rejected"],
@@ -1146,17 +1199,6 @@ class BloodRequestService:
             key = f"{row.blood_type}_{row.blood_product}_{row.request_status}"
             summary[key] = {
                 "blood_type": row.blood_type,
-                "blood_product": row.blood_product,
-                "status": row.request_status,
-                "count": row.count,
-                "total_quantity": row.total_quantity or 0,
-            }
-
-        return {
-            "facility_id": str(facility_id),
-            "role": "source" if as_source else "target",
-            "summary": list(summary.values()),
-        }
                 "blood_product": row.blood_product,
                 "status": row.request_status,
                 "count": row.count,
