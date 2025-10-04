@@ -286,7 +286,9 @@ class RefreshToken(Base):
         default=lambda: datetime.now(timezone.utc) + timedelta(days=30),
     )
     usage_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-    last_used_at: Mapped[DateTime] = mapped_column(DateTime, nullable=False)
+    last_used_at: Mapped[DateTime] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=False
+    )
 
     # Optional metadata for tracking
     device_info: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
