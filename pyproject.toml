@@ -6,36 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "donorcom-api"
 version = "0.1.0"
 description = "A blood distribution and management system"
-readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 
 authors = [
     { name = "Timothy Saatum", email = "timothysaatum@example.com" }
 ]
 
 license = { text = "MIT" }
-
-dependencies = [
-    "fastapi>=0.110.0",
-    "uvicorn[standard]>=0.23.0",
-    "sqlalchemy>=2.0.0",
-    "python-dotenv>=1.0.0",
-    "pydantic>=2.0.0",
-    "alembic>=1.13.0"
-]
-
-[project.optional-dependencies]
-test = [
-    "pytest>=7.0",
-    "pytest-asyncio>=0.21",
-    "httpx>=0.27",
-    "pytest-pythonpath>=0.7"
-]
-
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-pythonpath = ["."]
