@@ -200,51 +200,79 @@ class BloodRequestService:
         return True
 
     def _fast_convert_to_response(self, request: BloodRequest) -> BloodRequestResponse:
-        """Optimized conversion with minimal overhead"""
+        """Optimized conversion with minimal overhead - SAFE VERSION"""
 
-        # Fast facility name resolution with caching
+        # Safely extract all needed values without triggering lazy loads
         receiving_facility_name = "Unknown Facility"
-        if request.target_facility and request.target_facility.facility_name:
-            facility_key = str(request.facility_id)
-            if facility_key in self._facility_name_cache:
-                receiving_facility_name = self._facility_name_cache[facility_key]
-            else:
-                name = request.target_facility.facility_name.strip()
-                receiving_facility_name = name if name else "Unknown Facility"
-                self._facility_name_cache[facility_key] = receiving_facility_name
-
-        # Fast requester facility name resolution
-        requester_facility_name = None
-        if request.requester:
-            if request.requester.facility and request.requester.facility.facility_name:
-                name = request.requester.facility.facility_name.strip()
-                requester_facility_name = name if name else None
-            elif (
-                request.requester.work_facility
-                and request.requester.work_facility.facility_name
-            ):
-                name = request.requester.work_facility.facility_name.strip()
-                requester_facility_name = name if name else None
-
-        # Fast source facility name resolution with caching
         source_facility_name = "Unknown Facility"
-        if request.source_facility and request.source_facility.facility_name:
-            source_key = str(request.source_facility_id)
-            if source_key in self._facility_name_cache:
-                source_facility_name = self._facility_name_cache[source_key]
-            else:
-                name = request.source_facility.facility_name.strip()
-                source_facility_name = name if name else "Unknown Facility"
-                self._facility_name_cache[source_key] = source_facility_name
-
-        # Safely get requester name - check if requester is loaded and has full_name
+        requester_facility_name = None
         requester_name = "Unknown User"
-        if request.requester:
-            # Check if full_name attribute exists and is not None
-            requester_name = (
-                getattr(request.requester, "full_name", "Unknown User")
-                or "Unknown User"
-            )
+
+        try:
+            # Check if target_facility is loaded (using __dict__ to avoid lazy loading)
+            if (
+                "target_facility" in request.__dict__
+                and request.__dict__["target_facility"] is not None
+            ):
+                target_fac = request.__dict__["target_facility"]
+                if hasattr(target_fac, "facility_name") and target_fac.facility_name:
+                    receiving_facility_name = (
+                        target_fac.facility_name.strip() or "Unknown Facility"
+                    )
+
+            # Check if source_facility is loaded
+            if (
+                "source_facility" in request.__dict__
+                and request.__dict__["source_facility"] is not None
+            ):
+                source_fac = request.__dict__["source_facility"]
+                if hasattr(source_fac, "facility_name") and source_fac.facility_name:
+                    source_facility_name = (
+                        source_fac.facility_name.strip() or "Unknown Facility"
+                    )
+
+            # Check if requester is loaded
+            if (
+                "requester" in request.__dict__
+                and request.__dict__["requester"] is not None
+            ):
+                requester = request.__dict__["requester"]
+
+                # Get requester name
+                if hasattr(requester, "full_name"):
+                    try:
+                        # Access via __dict__ to avoid lazy loading
+                        if "full_name" in requester.__dict__:
+                            requester_name = (
+                                requester.__dict__["full_name"] or "Unknown User"
+                            )
+                        else:
+                            # If full_name is a property or computed, it might not be in __dict__
+                            # Try direct access as last resort (but this might trigger lazy load)
+                            name = getattr(requester, "full_name", None)
+                            if name:
+                                requester_name = name
+                    except Exception as e:
+                        logger.warning(f"Could not access requester full_name: {e}")
+
+                # Get requester facility name
+                if (
+                    "facility" in requester.__dict__
+                    and requester.__dict__["facility"] is not None
+                ):
+                    req_fac = requester.__dict__["facility"]
+                    if hasattr(req_fac, "facility_name") and req_fac.facility_name:
+                        requester_facility_name = req_fac.facility_name.strip() or None
+                elif (
+                    "work_facility" in requester.__dict__
+                    and requester.__dict__["work_facility"] is not None
+                ):
+                    work_fac = requester.__dict__["work_facility"]
+                    if hasattr(work_fac, "facility_name") and work_fac.facility_name:
+                        requester_facility_name = work_fac.facility_name.strip() or None
+
+        except Exception as e:
+            logger.error(f"Error in _fast_convert_to_response: {e}", exc_info=True)
 
         return BloodRequestResponse(
             id=request.id,
