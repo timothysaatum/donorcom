@@ -196,7 +196,7 @@ async def create_facility_with_blood_bank(
     try:
         facility_service = FacilityService(db)
         result = await facility_service.create_facility_with_blood_bank(
-            data=facility_data, facility_manager_id=current_user.id
+            facility_data=facility_data, facility_manager_id=current_user.id
         )
 
         # Calculate duration
