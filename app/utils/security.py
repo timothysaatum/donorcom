@@ -17,6 +17,7 @@ from app.models.user import User, RefreshToken, UserSession
 from sqlalchemy.future import select
 from uuid import UUID
 from sqlalchemy.orm import selectinload, joinedload
+from sqlalchemy.exc import SQLAlchemyError
 from app.models.health_facility import Facility
 from uuid import uuid4
 from app.utils.logging_config import get_logger, log_security_event
