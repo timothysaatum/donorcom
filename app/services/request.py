@@ -373,16 +373,16 @@ class BloodRequestService:
             # Commit all changes together
             await self.db.commit()
 
-            # Reload all created requests with relationships AFTER commit
+            # Reload all created requests with ALL NESTED relationships AFTER commit
             request_ids = [req.id for req in created_requests]
             result = await self.db.execute(
                 select(BloodRequest)
                 .options(
                     selectinload(BloodRequest.target_facility),
                     selectinload(BloodRequest.source_facility),
-                    selectinload(BloodRequest.requester).selectinload(User.facility),
-                    selectinload(BloodRequest.requester).selectinload(
-                        User.work_facility
+                    # Load requester with NESTED selectinload for facility relationships
+                    selectinload(BloodRequest.requester).options(
+                        selectinload(User.facility), selectinload(User.work_facility)
                     ),
                 )
                 .where(BloodRequest.id.in_(request_ids))
