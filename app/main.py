@@ -213,6 +213,7 @@
 import os
 import logging
 from contextlib import asynccontextmanager
+import traceback
 from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
@@ -220,7 +221,7 @@ from app.routes import router as api_router
 from app.config import settings
 from app.database import engine, async_session, close_db
 from app.dependencies import get_db
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
@@ -311,6 +312,49 @@ def create_application() -> FastAPI:
         redoc_url=None,
         lifespan=lifespan,
     )
+
+    # Global exception handler to capture all errors
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        """Catch all unhandled exceptions and log them with full details"""
+        error_traceback = "".join(
+            traceback.format_exception(type(exc), exc, exc.__traceback__)
+        )
+
+        # Print to stdout for Vercel to capture
+        print(f"\n{'='*80}")
+        print(f"UNHANDLED EXCEPTION")
+        print(f"Path: {request.method} {request.url.path}")
+        print(f"Error Type: {type(exc).__name__}")
+        print(f"Error Message: {str(exc)}")
+        print(f"{'='*80}")
+        print(error_traceback)
+        print(f"{'='*80}\n")
+
+        logger.error(
+            f"Unhandled exception: {type(exc).__name__}: {str(exc)}",
+            extra={
+                "extra_fields": {
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                    "path": request.url.path,
+                    "method": request.method,
+                }
+            },
+            exc_info=True,
+        )
+
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": f"Internal server error: {type(exc).__name__}",
+                "error": (
+                    str(exc)
+                    if settings.ENVIRONMENT != "production"
+                    else "Internal server error"
+                ),
+            },
+        )
 
     @app.middleware("http")
     async def https_redirect(request: Request, call_next):
@@ -510,6 +554,88 @@ def create_application() -> FastAPI:
     async def options_handler(full_path: str):
         """Handle OPTIONS requests for CORS"""
         return {}
+
+    @app.post("/debug/test-login")
+    async def test_login_flow(db: AsyncSession = Depends(get_db)):
+        """Debug endpoint to test login flow step by step"""
+        results = {}
+
+        try:
+            # Step 1: Test basic query
+            print("Step 1: Testing basic user query...")
+            from app.models.user import User
+
+            result = await db.execute(select(User).limit(1))
+            user = result.scalar_one_or_none()
+            results["step1_user_query"] = "SUCCESS" if user else "NO_USERS"
+            print(f"Step 1 result: {results['step1_user_query']}")
+
+            if not user:
+                return {"results": results, "message": "No users in database"}
+
+            # Step 2: Test with relationships
+            print("Step 2: Testing query with relationships...")
+            from sqlalchemy.orm import joinedload
+            from app.models.health_facility import Facility
+            from app.models.rbac import Role
+
+            result = await db.execute(
+                select(User)
+                .options(joinedload(User.roles), joinedload(User.work_facility))
+                .where(User.id == user.id)
+            )
+            user_with_rels = result.unique().scalar_one_or_none()
+            results["step2_with_relationships"] = "SUCCESS"
+            print("Step 2: SUCCESS")
+
+            # Step 3: Test session creation
+            print("Step 3: Testing session creation...")
+            from app.utils.security import SessionManager
+            from app.models.user import UserSession
+            import uuid
+            from datetime import datetime, timedelta
+
+            # Create a simple session manually
+            test_session = UserSession(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                session_token="test_token_" + str(uuid.uuid4()),
+                expires_at=datetime.utcnow() + timedelta(days=7),
+                ip_address="127.0.0.1",
+                user_agent="debug",
+                is_active=True,
+                login_method="test",
+            )
+            db.add(test_session)
+            await db.commit()
+            results["step3_session_creation"] = "SUCCESS"
+            print("Step 3: SUCCESS")
+
+            # Step 4: Test token operations
+            print("Step 4: Testing token operations...")
+            from app.utils.security import TokenManager
+
+            access_token = TokenManager.create_access_token(
+                data={"sub": str(user.id)}, session_id=test_session.id
+            )
+            refresh_token = TokenManager.create_refresh_token(user.id)
+            results["step4_token_creation"] = "SUCCESS"
+            results["access_token_length"] = len(access_token)
+            print("Step 4: SUCCESS")
+
+            # Clean up test session
+            await db.delete(test_session)
+            await db.commit()
+
+            return {"status": "ALL_TESTS_PASSED", "results": results}
+
+        except Exception as e:
+            print(f"ERROR in step: {e}")
+            print(traceback.format_exc())
+            results["error"] = str(e)
+            results["error_type"] = type(e).__name__
+            results["traceback"] = traceback.format_exc()
+            return {"status": "FAILED", "results": results}
 
     return app
 
