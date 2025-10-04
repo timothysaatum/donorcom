@@ -1,3 +1,4 @@
+import traceback
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.facility_schema import (
@@ -294,8 +295,9 @@ async def create_facility_with_blood_bank(
             user_id=current_user_id,
             ip_address=client_ip,
         )
+        detail = f"Facility with blood bank creation failed: {type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
 
-        raise HTTPException(status_code=500, detail="Facility with blood bank creation failed")
+        raise HTTPException(status_code=500, detail=detail)
 
 
 @router.get("/get-facility-by-id/{facility_id}", response_model=FacilityResponse)
