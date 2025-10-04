@@ -1,3 +1,4 @@
+import traceback
 from app.utils.ip_address_finder import get_client_ip
 from fastapi import (
     APIRouter, 
@@ -53,7 +54,7 @@ async def create_user(
     """Create a new user with comprehensive logging"""
     start_time = time.time()
     client_ip = get_client_ip(request)
-    
+
     logger.info(
         "User registration started",
         extra={
@@ -63,7 +64,7 @@ async def create_user(
             "client_ip": client_ip
         }
     )
-    
+
     try:
         # Validate role restrictions
         if user_data.role in ["lab_manager", "staff"]:
@@ -76,7 +77,7 @@ async def create_user(
                 },
                 ip_address=client_ip
             )
-            
+
             logger.warning(
                 "Registration denied - restricted role",
                 extra={
@@ -86,7 +87,7 @@ async def create_user(
                     "reason": "restricted_role"
                 }
             )
-            
+
             raise HTTPException(
                 status_code=403, 
                 detail=f"Cannot create account for {user_data.role}."
@@ -96,10 +97,10 @@ async def create_user(
         user_service = UserService(db)
         created_user = await user_service.create_user(user_data, background_tasks)
         await db.refresh(created_user, ["roles", "facility"])
-        
+
         # Calculate duration
         duration_ms = (time.time() - start_time) * 1000
-        
+
         # Log successful registration
         log_security_event(
             event_type="user_registered",
@@ -113,7 +114,7 @@ async def create_user(
             user_id=str(created_user.id),
             ip_address=client_ip
         )
-        
+
         log_audit_event(
             action="create",
             resource_type="user",
@@ -126,7 +127,7 @@ async def create_user(
             },
             user_id=str(created_user.id)
         )
-        
+
         logger.info(
             "User registration successful",
             extra={
@@ -137,7 +138,7 @@ async def create_user(
                 "duration_ms": duration_ms
             }
         )
-        
+
         # Log performance metric for slow registrations
         if duration_ms > 2000:  # More than 2 seconds
             log_performance_metric(
@@ -148,16 +149,16 @@ async def create_user(
                     "email_verification_sent": True
                 }
             )
-        
+
         return UserResponse.model_validate(created_user, from_attributes=True)
-        
+
     except HTTPException:
         # Re-raise HTTP exceptions (already logged above)
         raise
     except Exception as e:
         # Log unexpected errors
         duration_ms = (time.time() - start_time) * 1000
-        
+
         logger.error(
             "User registration failed due to unexpected error",
             extra={
@@ -168,7 +169,15 @@ async def create_user(
             },
             exc_info=True
         )
-        
+        tb = traceback.format_exc()
+        logger.error(
+            f"User registration failed due to unexpected error: {e}\n{tb}",
+            extra={
+                "event_type": "user_registration_failed",
+                "email": getattr(user_data, "email", None),
+                "client_ip": client_ip,
+            },
+        )
         log_security_event(
             event_type="registration_error",
             details={
@@ -179,7 +188,7 @@ async def create_user(
             },
             ip_address=client_ip
         )
-        
+
         raise HTTPException(status_code=500, detail="Registration failed")
 
 
