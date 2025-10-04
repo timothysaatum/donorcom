@@ -59,9 +59,9 @@ import logging
 import os
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import NullPool, StaticPool
 from app.db.base import Base
 from app.config import settings
 
@@ -71,41 +71,59 @@ DATABASE_URL = settings.DATABASE_URL
 
 url = make_url(DATABASE_URL)
 connect_args = {}
-if url.get_backend_name() == "sqlite":
-    connect_args["check_same_thread"] = False
 
 # Check if running on Vercel (serverless)
 IS_SERVERLESS = (
     os.getenv("VERCEL") == "1" or os.getenv("AWS_LAMBDA_FUNCTION_NAME") is not None
 )
 
+logger.info(f"Database backend: {url.get_backend_name()}")
+logger.info(f"Serverless mode: {IS_SERVERLESS}")
+
 # --- Async engine (FastAPI runtime) ---
-# Critical: Use NullPool for serverless to prevent connection conflicts
 if IS_SERVERLESS:
     logger.info("Configuring database for serverless environment")
 
-    # Add PostgreSQL-specific settings
+    # PostgreSQL-specific settings for asyncpg
     if url.get_backend_name() == "postgresql":
-        connect_args.update(
-            {
-                "server_settings": {
-                    "application_name": "fastapi_vercel",
-                    "jit": "off",
-                },
-                "command_timeout": 30,
-            }
-        )
+        connect_args = {
+            "server_settings": {
+                "application_name": "fastapi_vercel",
+                "jit": "off",
+            },
+            "timeout": 30,
+            "command_timeout": 30,
+            # CRITICAL: Disable all statement caching to prevent conflicts
+            "statement_cache_size": 0,
+            "prepared_statement_cache_size": 0,
+            # Disable automatic BEGIN statements
+            "server_settings": {
+                "application_name": "fastapi_vercel",
+                "jit": "off",
+                "idle_in_transaction_session_timeout": "30000",
+            },
+        }
+    elif url.get_backend_name() == "sqlite":
+        connect_args = {"check_same_thread": False}
 
-    # Use NullPool to avoid connection reuse issues in serverless
+    # Use NullPool for serverless - no connection reuse
     engine = create_async_engine(
         DATABASE_URL,
+        poolclass=NullPool,
         connect_args=connect_args,
-        poolclass=NullPool,  # CRITICAL: No pooling in serverless
-        echo=(settings.ENVIRONMENT != "production"),
+        echo=False,  # Disable echo in production
+        isolation_level="AUTOCOMMIT",  # Prevent transaction conflicts
     )
+
+    logger.info("Using NullPool for serverless environment")
+
 else:
     # Traditional configuration for local development
     logger.info("Configuring database for local/traditional environment")
+
+    if url.get_backend_name() == "sqlite":
+        connect_args = {"check_same_thread": False}
+
     engine = create_async_engine(
         DATABASE_URL,
         connect_args=connect_args,
@@ -116,7 +134,9 @@ else:
         echo=(settings.ENVIRONMENT != "production"),
     )
 
-# Create session factory
+    logger.info("Using traditional connection pooling")
+
+# Create session factory with proper settings
 async_session = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
@@ -132,9 +152,13 @@ if "+asyncpg" in DATABASE_URL:
 elif "+aiosqlite" in DATABASE_URL:
     SYNC_DATABASE_URL = DATABASE_URL.replace("+aiosqlite", "")
 
+sync_connect_args = {}
+if url.get_backend_name() == "sqlite":
+    sync_connect_args = {"check_same_thread": False}
+
 sync_engine = create_engine(
     SYNC_DATABASE_URL,
-    connect_args=connect_args if url.get_backend_name() == "sqlite" else {},
+    connect_args=sync_connect_args,
     echo=(settings.ENVIRONMENT != "production"),
 )
 

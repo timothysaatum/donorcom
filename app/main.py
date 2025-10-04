@@ -213,24 +213,16 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from app.services.scheduler import start_scheduler, stop_scheduler
-from app.tasks.reverse_address import start_periodic_task, stop_periodic_task
-from app.utils.create_user_roles import seed_roles_and_permissions
 from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from app.routes import router as api_router
 from app.config import settings
-from sqladmin import Admin
-from app.admin.user_admin import UserAdmin
-from app.admin.facility_admin import FacilityAdmin
-from app.admin.blood_bank_admin import BloodBankAdmin
-from app.admin.inventory import BloodInventoryAdmin
 from app.database import engine, async_session, close_db
 from app.dependencies import get_db
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 from app.models.rbac import Role, Permission
 from app.middlewares.logging_middleware import LoggingMiddleware
@@ -242,9 +234,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Check if running in serverless environment
-IS_SERVERLESS = (
-    os.getenv("VERCEL") == "1" or os.getenv("AWS_LAMBDA_FUNCTION_NAME") is not None
-)
+IS_SERVERLESS = os.getenv("VERCEL") == "1"
 
 
 @asynccontextmanager
@@ -255,31 +245,36 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Application starting up...")
     logger.info(f"Serverless mode: {IS_SERVERLESS}")
+    logger.info(f"Environment: {settings.ENVIRONMENT}")
 
     # Only start scheduler in non-serverless environments
-    # Serverless functions should use external cron jobs (e.g., Vercel Cron)
     if not IS_SERVERLESS:
-        logger.info("Starting scheduler and periodic tasks...")
-        start_scheduler()
-        start_periodic_task()
+        try:
+            from app.services.scheduler import start_scheduler
+            from app.tasks.reverse_address import start_periodic_task
+
+            logger.info("Starting scheduler and periodic tasks...")
+            start_scheduler()
+            start_periodic_task()
+        except Exception as e:
+            logger.error(f"Error starting scheduler: {e}")
     else:
         logger.info("Skipping scheduler in serverless mode")
 
-    # Seed roles and permissions (with error handling)
+    # Seed roles and permissions
     try:
+        from app.utils.create_user_roles import seed_roles_and_permissions
+
         async with async_session() as db:
             try:
                 await seed_roles_and_permissions(db)
                 await db.commit()
                 logger.info("Roles and permissions seeded successfully")
             except Exception as e:
-                logger.error(f"Error seeding roles and permissions: {e}")
+                logger.warning(f"Error seeding roles and permissions: {e}")
                 await db.rollback()
-                # Don't raise - allow app to start even if seeding fails
-                # This prevents cold starts from failing if roles already exist
     except Exception as e:
-        logger.error(f"Database connection error during startup: {e}")
-        # Don't raise - allow app to start and handle errors per-request
+        logger.warning(f"Could not seed roles and permissions: {e}")
 
     yield
 
@@ -288,11 +283,17 @@ async def lifespan(app: FastAPI):
 
     # Stop scheduler and periodic tasks
     if not IS_SERVERLESS:
-        logger.info("Stopping scheduler and periodic tasks...")
-        stop_scheduler()
-        stop_periodic_task()
+        try:
+            from app.services.scheduler import stop_scheduler
+            from app.tasks.reverse_address import stop_periodic_task
 
-    # Close database connections gracefully
+            logger.info("Stopping scheduler and periodic tasks...")
+            stop_scheduler()
+            stop_periodic_task()
+        except Exception as e:
+            logger.error(f"Error stopping scheduler: {e}")
+
+    # Close database connections
     try:
         await close_db()
         logger.info("Database connections closed successfully")
@@ -319,7 +320,7 @@ def create_application() -> FastAPI:
             return RedirectResponse(url)
         return await call_next(request)
 
-    # Enhanced CORS setup for Next.js frontend
+    # Enhanced CORS setup
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.BACKEND_CORS_ORIGINS,
@@ -342,17 +343,27 @@ def create_application() -> FastAPI:
     # Include API routes
     app.include_router(api_router, prefix=settings.API_PREFIX)
 
-    # SQLAdmin setup (might have issues in serverless - consider disabling)
+    # SQLAdmin setup (disabled in serverless)
     if not IS_SERVERLESS:
-        admin = Admin(app, engine, base_url="/admin")
-        admin.add_view(UserAdmin)
-        admin.add_view(FacilityAdmin)
-        admin.add_view(BloodBankAdmin)
-        admin.add_view(BloodInventoryAdmin)
-    else:
-        logger.warning("SQLAdmin disabled in serverless mode")
+        try:
+            from sqladmin import Admin
+            from app.admin.user_admin import UserAdmin
+            from app.admin.facility_admin import FacilityAdmin
+            from app.admin.blood_bank_admin import BloodBankAdmin
+            from app.admin.inventory import BloodInventoryAdmin
 
-    # Custom OpenAPI config for Swagger
+            admin = Admin(app, engine, base_url="/admin")
+            admin.add_view(UserAdmin)
+            admin.add_view(FacilityAdmin)
+            admin.add_view(BloodBankAdmin)
+            admin.add_view(BloodInventoryAdmin)
+            logger.info("SQLAdmin enabled")
+        except Exception as e:
+            logger.warning(f"Could not initialize SQLAdmin: {e}")
+    else:
+        logger.info("SQLAdmin disabled in serverless mode")
+
+    # Custom OpenAPI config
     def custom_openapi():
         if app.openapi_schema:
             return app.openapi_schema
@@ -372,7 +383,7 @@ def create_application() -> FastAPI:
             }
         }
 
-        # Protect routes that require authentication
+        # Protected paths
         protected_paths = [
             f"{settings.API_PREFIX}/facilities",
             f"{settings.API_PREFIX}/blood-bank",
@@ -395,7 +406,8 @@ def create_application() -> FastAPI:
         for path_key, path_item in openapi_schema["paths"].items():
             if any(path_key.startswith(p) for p in protected_paths):
                 for method in path_item.values():
-                    method.setdefault("security", []).append({"BearerAuth": []})
+                    if isinstance(method, dict):
+                        method.setdefault("security", []).append({"BearerAuth": []})
 
         app.openapi_schema = openapi_schema
         return app.openapi_schema
@@ -415,8 +427,7 @@ def create_application() -> FastAPI:
     async def health_check(db: AsyncSession = Depends(get_db)):
         """Health check with database connectivity test"""
         try:
-            # Test database connection
-            await db.execute(select(1))
+            await db.execute(text("SELECT 1"))
             return {
                 "status": "healthy",
                 "database": "connected",
@@ -428,27 +439,52 @@ def create_application() -> FastAPI:
                 "status": "unhealthy",
                 "database": "disconnected",
                 "error": str(e),
+                "error_type": type(e).__name__,
+                "serverless": IS_SERVERLESS,
+            }
+
+    @app.get("/debug/db-query")
+    async def test_db_query(db: AsyncSession = Depends(get_db)):
+        """Test a simple database query"""
+        try:
+            from app.models.user import User
+
+            result = await db.execute(text("SELECT COUNT(*) FROM users"))
+            count = result.scalar()
+            return {
+                "status": "success",
+                "user_count": count,
+                "serverless": IS_SERVERLESS,
+            }
+        except Exception as e:
+            logger.error(f"DB query test failed: {type(e).__name__}: {e}")
+            import traceback
+
+            return {
+                "status": "error",
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc(),
                 "serverless": IS_SERVERLESS,
             }
 
     @app.get("/debug/roles")
     async def check_roles(db: AsyncSession = Depends(get_db)):
-        """Debug endpoint to check if roles and permissions were created"""
+        """Debug endpoint to check roles"""
         try:
             result = await db.execute(
                 select(Role).options(selectinload(Role.permissions))
             )
             roles = result.scalars().all()
 
-            roles_data = []
-            for role in roles:
-                roles_data.append(
-                    {
-                        "id": role.id,
-                        "name": role.name,
-                        "permissions": [perm.name for perm in role.permissions],
-                    }
-                )
+            roles_data = [
+                {
+                    "id": role.id,
+                    "name": role.name,
+                    "permissions": [perm.name for perm in role.permissions],
+                }
+                for role in roles
+            ]
 
             return {"total_roles": len(roles), "roles": roles_data}
         except Exception as e:
@@ -457,7 +493,7 @@ def create_application() -> FastAPI:
 
     @app.get("/debug/permissions")
     async def check_permissions(db: AsyncSession = Depends(get_db)):
-        """Debug endpoint to check all permissions"""
+        """Debug endpoint to check permissions"""
         try:
             result = await db.execute(select(Permission))
             permissions = result.scalars().all()
@@ -472,7 +508,7 @@ def create_application() -> FastAPI:
 
     @app.options("/{full_path:path}")
     async def options_handler(full_path: str):
-        """Handle OPTIONS requests for CORS preflight"""
+        """Handle OPTIONS requests for CORS"""
         return {}
 
     return app
