@@ -1,3 +1,4 @@
+import traceback
 import uuid
 from app.models.user import UserSession
 from fastapi import (
@@ -230,8 +231,8 @@ async def login(
             user_agent=user_agent,
             details={"email": email, "error": str(e), "duration_ms": duration_ms},
         )
-
-        raise HTTPException(status_code=500, detail="Login failed")
+        detail = f"Login failed: {type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+        raise HTTPException(status_code=500, detail=detail)
 
 
 @router.get("/refresh", response_model=DataWrapper[AuthResponse])
