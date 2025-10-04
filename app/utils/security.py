@@ -16,7 +16,7 @@ from app.dependencies import get_db
 from app.models.user import User, RefreshToken, UserSession
 from sqlalchemy.future import select
 from uuid import UUID
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 from app.models.health_facility import Facility
 from uuid import uuid4
 from app.utils.logging_config import get_logger, log_security_event
@@ -718,6 +718,82 @@ async def handle_successful_login(
         await db.rollback()
 
 
+# async def authenticate_user(
+#     db: AsyncSession,
+#     email: str,
+#     password: str,
+#     ip_address: str = None,
+#     user_agent: str = None,
+# ) -> Tuple[bool, Optional[User], Optional[str]]:
+#     """
+#     Authenticate user with enhanced security features
+#     Returns: (success, user, error_message)
+#     """
+
+#     try:
+#         result = await db.execute(
+#             select(User)
+#             .options(
+#                 selectinload(User.roles).selectinload(Role.permissions),
+#                 selectinload(User.facility).selectinload(Facility.blood_bank),
+#                 selectinload(User.work_facility).selectinload(Facility.blood_bank),
+#             )
+#             .where(User.email == email)
+#         )
+
+#         user = result.scalar_one_or_none()
+#         if not user:
+#             log_security_event(
+#                 event_type="authentication_failed",
+#                 ip_address=ip_address,
+#                 user_agent=user_agent,
+#                 details={"reason": "user_not_found", "email": email},
+#             )
+#             return False, None, "Invalid email or password"
+
+#         can_login, login_error = user.can_login()
+#         if not can_login:
+#             await handle_failed_login(db, user, ip_address, user_agent)
+#             return False, user, login_error
+
+#         if not user.is_verified:
+#             return False, user, "Email not verified"
+
+#         if not verify_password(password, user.password):
+#             await handle_failed_login(db, user, ip_address, user_agent)
+#             return False, user, "Invalid email or password"
+
+#         if needs_rehash(user.password):
+#             try:
+#                 user.password = get_password_hash(password)
+#                 logger.info(
+#                     "Password rehashed with updated parameters",
+#                     extra={"event_type": "password_rehashed", "user_id": str(user.id)},
+#                 )
+#             except Exception as e:
+#                 logger.warning(
+#                     "Failed to rehash password",
+#                     extra={
+#                         "event_type": "password_rehash_failed",
+#                         "user_id": str(user.id),
+#                         "error": str(e),
+#                     },
+#                 )
+
+#         await handle_successful_login(db, user, ip_address, user_agent)
+#         return True, user, None
+
+#     except Exception as e:
+#         logger.error(
+#             "Authentication error",
+#             extra={
+#                 "event_type": "authentication_error",
+#                 "email": email,
+#                 "error": str(e),
+#             },
+#             exc_info=True,
+#         )
+#         return False, None, "Authentication failed"
 async def authenticate_user(
     db: AsyncSession,
     email: str,
@@ -731,17 +807,21 @@ async def authenticate_user(
     """
 
     try:
+        # Use joinedload instead of selectinload for serverless
+        # joinedload uses JOINs in a single query instead of separate queries
         result = await db.execute(
             select(User)
             .options(
-                selectinload(User.roles).selectinload(Role.permissions),
-                selectinload(User.facility).selectinload(Facility.blood_bank),
-                selectinload(User.work_facility).selectinload(Facility.blood_bank),
+                joinedload(User.roles).joinedload(Role.permissions),
+                joinedload(User.facility).joinedload(Facility.blood_bank),
+                joinedload(User.work_facility).joinedload(Facility.blood_bank),
             )
             .where(User.email == email)
+            .execution_options(populate_existing=True)
         )
 
-        user = result.scalar_one_or_none()
+        user = result.unique().scalar_one_or_none()
+        
         if not user:
             log_security_event(
                 event_type="authentication_failed",
@@ -783,13 +863,27 @@ async def authenticate_user(
         await handle_successful_login(db, user, ip_address, user_agent)
         return True, user, None
 
+    except SQLAlchemyError as e:
+        logger.error(
+            f"Database error during authentication: {type(e).__name__}",
+            extra={
+                "event_type": "authentication_db_error",
+                "email": email,
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+            exc_info=True,
+        )
+        return False, None, "Authentication failed"
+        
     except Exception as e:
         logger.error(
-            "Authentication error",
+            f"Authentication error: {type(e).__name__}",
             extra={
                 "event_type": "authentication_error",
                 "email": email,
                 "error": str(e),
+                "error_type": type(e).__name__,
             },
             exc_info=True,
         )
