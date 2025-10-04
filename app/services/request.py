@@ -400,7 +400,7 @@ class BloodRequestService:
             await self.db.rollback()
             logger.error(f"Error creating bulk requests: {str(e)}")
             raise HTTPException(
-                status_code=500, detail="Failed to create blood requests"
+                status_code=500, detail=f"Failed to create blood requests{str(e)}"
             )
 
     async def _validate_facilities(self, facility_ids: List[UUID]) -> None:

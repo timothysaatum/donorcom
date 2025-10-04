@@ -411,7 +411,6 @@ class SessionManager:
         )
         normalized_encoding = SessionManager.normalize_header(accept_encoding)
 
-        
         # Fingerprint device (more stable components)
         components = [
             parsed_ua.get("browser", ""),
@@ -426,9 +425,7 @@ class SessionManager:
         ]
 
         fingerprint_data = "|".join(filter(None, components))
-        fingerprint = hashlib.sha256(
-            fingerprint_data.encode("utf-8")
-        ).hexdigest()[:32]
+        fingerprint = hashlib.sha256(fingerprint_data.encode("utf-8")).hexdigest()[:32]
 
         # 3. Security fingerprint (includes security headers)
         security_components = components + [
@@ -784,6 +781,7 @@ async def handle_successful_login(
 #         await handle_successful_login(db, user, ip_address, user_agent)
 #         return True, user, None
 
+
 #     except Exception as e:
 #         logger.error(
 #             "Authentication error",
@@ -822,7 +820,7 @@ async def authenticate_user(
         )
 
         user = result.unique().scalar_one_or_none()
-        
+
         if not user:
             log_security_event(
                 event_type="authentication_failed",
@@ -876,7 +874,7 @@ async def authenticate_user(
             exc_info=True,
         )
         return False, None, "Authentication failed"
-        
+
     except Exception as e:
         logger.error(
             f"Authentication error: {type(e).__name__}",
@@ -923,10 +921,10 @@ def verify_token_and_extract_data(token: str) -> dict:
 
 
 async def get_current_user(
-        db: AsyncSession = Depends(get_db),
-        token: str = Depends(oauth2_scheme),
-        request: Request = None,
-    ) -> User:
+    db: AsyncSession = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+    request: Request = None,
+) -> User:
     """Get current user with enhanced session validation"""
     try:
         payload = TokenManager.decode_token(token)
