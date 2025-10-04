@@ -20,10 +20,10 @@ class BloodProductProcessor:
     ENUM_TO_HUMAN = {
         "Whole Blood": "Whole Blood",
         "Red Blood Cells": "Red Blood Cells",
-        "Red Cells": "Red Blood Cells",
+        "Red Cells": "Red Blood Cells",  # Map variant to canonical
         "Platelets": "Platelets",
         "Fresh Frozen Plasma": "Fresh Frozen Plasma",
-        "Plasma": "Fresh Frozen Plasma",
+        "Plasma": "Fresh Frozen Plasma",  # Map variant to canonical
         "Cryoprecipitate": "Cryoprecipitate",
         "Albumin": "Albumin",
     }
@@ -77,13 +77,13 @@ class BloodProductProcessor:
         for product_name in selected_product_names:
             db_names.append(product_name)
 
-            # Add known variants
+            # Add known variants ONLY if the product is selected
             if product_name == "Red Blood Cells":
                 db_names.append("Red Cells")
             elif product_name == "Fresh Frozen Plasma":
                 db_names.append("Plasma")
 
-        return db_names
+        return list(set(db_names))  # Remove duplicates
 
     @classmethod
     def process_blood_types(
@@ -119,6 +119,7 @@ class ChartDataBuilder:
         db_to_human = BloodProductProcessor.ENUM_TO_HUMAN
 
         logger.info(f"Building chart for selected products: {selected_products}")
+        logger.debug(f"Date range: {from_date.date()} to {to_date.date()}")
 
         # Collect data by date for selected products only
         data_by_date = {}
@@ -135,22 +136,36 @@ class ChartDataBuilder:
             if not date_key:
                 continue
 
+            # Convert date to string for consistent keying
+            if isinstance(date_key, str):
+                date_str = date_key
+            else:
+                date_str = date_key.isoformat()
+
             # Extract product name and normalize it
             db_product_name = getattr(row, "blood_product", None) or (
                 row[1] if isinstance(row, (list, tuple)) else None
             )
 
-            human_product_name = db_to_human.get(db_product_name)
+            human_product_name = db_to_human.get(db_product_name, db_product_name)
+
+            logger.debug(
+                f"Processing row: date={date_str}, db_product={db_product_name}, "
+                f"human_product={human_product_name}, in_selected={human_product_name in selected_products}"
+            )
 
             # Skip if product not in selected products
             if not human_product_name or human_product_name not in selected_products:
+                logger.debug(
+                    f"Skipping product {human_product_name} - not in selected list"
+                )
                 continue
 
             # Initialize date entry if needed
-            if date_key not in data_by_date:
-                data_by_date[date_key] = {}
-            if human_product_name not in data_by_date[date_key]:
-                data_by_date[date_key][human_product_name] = 0
+            if date_str not in data_by_date:
+                data_by_date[date_str] = {}
+            if human_product_name not in data_by_date[date_str]:
+                data_by_date[date_str][human_product_name] = 0
 
             # Extract quantity (handle different field names)
             quantity = None
@@ -161,12 +176,14 @@ class ChartDataBuilder:
             if quantity is None and isinstance(row, (list, tuple)) and len(row) > 3:
                 quantity = row[3]
 
-            data_by_date[date_key][human_product_name] += quantity or 0
+            data_by_date[date_str][human_product_name] += quantity or 0
 
         # Generate chart data points
         chart_data = []
         current_date = from_date.date()
         end_date = to_date.date()
+
+        logger.debug(f"Generating data points from {current_date} to {end_date}")
 
         while current_date <= end_date:
             date_key = current_date.isoformat()
@@ -185,8 +202,10 @@ class ChartDataBuilder:
             current_date += timedelta(days=1)
 
         logger.info(
-            f"Generated {len(chart_data)} chart points with {len(selected_products)} products"
+            f"Generated {len(chart_data)} chart points with {len(selected_products)} products. "
+            f"Total data rows processed: {len(data_by_date)}"
         )
+
         return chart_data
 
 
@@ -422,20 +441,28 @@ class StatsService(BaseChartService):
         **kwargs,
     ) -> List:
         """Build query conditions for distribution data."""
+
+        logger.info(
+            f"Building distribution query: facility={facility_id}, "
+            f"date_range={from_date.date()} to {to_date.date()}, "
+            f"products={db_product_names}"
+        )
+
         conditions = [
             BloodDistribution.dispatched_from_id == facility_id,
             BloodDistribution.date_delivered.is_not(None),
             BloodDistribution.date_delivered >= from_date,
             BloodDistribution.date_delivered <= to_date,
-            # FIXED: Use lowercase enum values instead of uppercase
             BloodDistribution.status.in_(["delivered", "in transit"]),
         ]
 
         if db_product_names:
             conditions.append(BloodDistribution.blood_product.in_(db_product_names))
+            logger.debug(f"Filtering by products: {db_product_names}")
 
         if blood_types:
             conditions.append(BloodDistribution.blood_type.in_(blood_types))
+            logger.debug(f"Filtering by blood types: {blood_types}")
 
         return conditions
 
@@ -502,6 +529,12 @@ class RequestTrackingService(BaseChartService):
         """Build query conditions for request data."""
         request_direction = kwargs.get("request_direction")
 
+        logger.info(
+            f"Building request query: facility={facility_id}, "
+            f"date_range={from_date.date()} to {to_date.date()}, "
+            f"products={db_product_names}, direction={request_direction}"
+        )
+
         conditions = [
             BloodRequest.created_at >= from_date,
             BloodRequest.created_at <= to_date,
@@ -522,9 +555,11 @@ class RequestTrackingService(BaseChartService):
 
         if db_product_names:
             conditions.append(BloodRequest.blood_product.in_(db_product_names))
+            logger.debug(f"Filtering by products: {db_product_names}")
 
         if blood_types:
             conditions.append(BloodRequest.blood_type.in_(blood_types))
+            logger.debug(f"Filtering by blood types: {blood_types}")
 
         return conditions
 

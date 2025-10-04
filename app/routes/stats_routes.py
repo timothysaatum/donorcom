@@ -172,7 +172,6 @@ class RouteHelpers:
         )
 
 
-
 @router.get("/summary", response_model=DashboardSummaryResponse)
 async def dashboard_summary(
     db: AsyncSession = Depends(get_db),
@@ -306,11 +305,21 @@ async def distribution_chart(
                 parsed_from_date = RouteHelpers.parse_iso_date(
                     from_date, "from_date", str(current_user.id)
                 )
+                # Set to start of day
+                parsed_from_date = parsed_from_date.replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                )
+                logger.info(f"Parsed from_date: {parsed_from_date}")
 
             if to_date:
                 parsed_to_date = RouteHelpers.parse_iso_date(
                     to_date, "to_date", str(current_user.id)
                 )
+                # Set to end of day
+                parsed_to_date = parsed_to_date.replace(
+                    hour=23, minute=59, second=59, microsecond=999999
+                )
+                logger.info(f"Parsed to_date: {parsed_to_date}")
 
             # Validate date range if both dates provided
             if parsed_from_date and parsed_to_date:
@@ -322,6 +331,9 @@ async def distribution_chart(
             if blood_products:
                 RouteHelpers.validate_blood_products(
                     blood_products, str(current_user.id)
+                )
+                logger.info(
+                    f"Selected blood products: {[bp.value for bp in blood_products]}"
                 )
 
             if blood_types:
@@ -338,8 +350,16 @@ async def distribution_chart(
             )
 
             # Set actual date range used (with service defaults applied)
-            actual_to_date = parsed_to_date or datetime.now()
-            actual_from_date = parsed_from_date or (actual_to_date - timedelta(days=7))
+            actual_to_date = parsed_to_date or datetime.now().replace(
+                hour=23, minute=59, second=59, microsecond=999999
+            )
+            actual_from_date = parsed_from_date or (
+                actual_to_date - timedelta(days=7)
+            ).replace(hour=0, minute=0, second=0, microsecond=0)
+
+            logger.info(
+                f"Actual date range used: {actual_from_date.date()} to {actual_to_date.date()}"
+            )
 
             # Build metadata
             metadata = RouteHelpers.build_chart_metadata(
@@ -360,6 +380,7 @@ async def distribution_chart(
                     "user_id": str(current_user.id),
                     "data_points": len(chart_data),
                     "date_range_days": (actual_to_date - actual_from_date).days,
+                    "products_selected": len(blood_products) if blood_products else 0,
                 },
             )
 
