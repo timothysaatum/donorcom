@@ -15,13 +15,21 @@ request_id: ContextVar[Optional[str]] = ContextVar('request_id', default=None)
 user_id: ContextVar[Optional[str]] = ContextVar('user_id', default=None)
 session_id: ContextVar[Optional[str]] = ContextVar('session_id', default=None)
 
-LOG_DIR = "logs"
-os.makedirs(LOG_DIR, exist_ok=True)
+# Use /tmp for serverless environments (Vercel, AWS Lambda, etc.)
+# Check if we're in a serverless environment
+IS_SERVERLESS = os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME")
+LOG_DIR = "/tmp/logs" if IS_SERVERLESS else "logs"
+
+# Only create log directory if file logging is enabled
+# In serverless, we'll primarily use stdout logging
+if not IS_SERVERLESS:
+    os.makedirs(LOG_DIR, exist_ok=True)
 
 # Environment configuration
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-ENABLE_FILE_LOGGING = os.getenv("ENABLE_FILE_LOGGING", "true").lower() == "true"
+# Disable file logging in serverless environments by default
+ENABLE_FILE_LOGGING = os.getenv("ENABLE_FILE_LOGGING", "false" if IS_SERVERLESS else "true").lower() == "true"
 
 
 class ContextualJsonFormatter(jsonlogger.JsonFormatter):
@@ -92,8 +100,9 @@ class ApplicationLogger:
         console_handler.setLevel(getattr(logging, LOG_LEVEL))
         root_logger.addHandler(console_handler)
         
-        # File handlers (if enabled)
-        if ENABLE_FILE_LOGGING:
+        # File handlers (if enabled and not in serverless)
+        if ENABLE_FILE_LOGGING and not IS_SERVERLESS:
+            os.makedirs(LOG_DIR, exist_ok=True)  # Create directory here if needed
             self._setup_file_handlers(formatter)
         
         # Configure third-party loggers
