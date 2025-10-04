@@ -1115,10 +1115,12 @@ async def respond_to_request(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
         require_permission(
-            "facility.manage", "laboratory.manage", "blood.inventory.manage"
-        )
-    ),
-):
+            "facility.manage", 
+            "laboratory.manage", 
+            "blood.inventory.manage"
+            )
+        ),
+    ):
     """Allow facility staff to respond to a blood request"""
     start_time = time.time()
     current_user_id = str(current_user.id)
@@ -1170,7 +1172,7 @@ async def respond_to_request(
         }
 
         # Set the fulfilled_by field if status is being set to accepted
-        if response_data.request_status == RequestStatus.accepted:
+        if response_data.request_status == RequestStatus.ACCEPTED:
             response_data = response_data.model_copy(
                 update={"fulfilled_by_id": current_user.id}
             )
@@ -1224,7 +1226,7 @@ async def respond_to_request(
                 "old_status": old_values["request_status"],
                 "new_status": updated_request.request_status,
                 "blood_type": updated_request.blood_type,
-                "is_accepted": response_data.request_status == RequestStatus.accepted,
+                "is_accepted": response_data.request_status == RequestStatus.ACCEPTED,
                 "duration_ms": duration_ms,
             },
         )
@@ -1351,7 +1353,7 @@ async def cancel_blood_request(
             )
 
         # Check if request is in a cancellable state
-        if blood_request.request_status != RequestStatus.pending:
+        if blood_request.request_status != RequestStatus.PENDING:
             logger.warning(
                 "Blood request cancellation failed - invalid status",
                 extra={

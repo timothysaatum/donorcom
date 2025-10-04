@@ -31,6 +31,8 @@ aws/
 logs/
 # Dev credentials
 dev_credentials.txt
+db_fixtures.py
 awscliv2.zip
 # Editor + local environment
 .pytest_cache/
+.vercel

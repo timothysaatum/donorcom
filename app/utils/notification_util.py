@@ -15,7 +15,11 @@ async def notify(db, user_id: UUID, title: str, message: str) -> None:
     """
     try:
         # DB record
-        new_notification = Notification(user_id=user_id, title=title, message=message)
+        new_notification = Notification(
+                user_id=user_id, 
+                title=title, 
+                message=message
+            )
         db.add(new_notification)
 
         payload = {
@@ -27,7 +31,7 @@ async def notify(db, user_id: UUID, title: str, message: str) -> None:
         # Commit to DB
         await db.commit()
         manager = ConnectionManager()
-        # Non-blocking WebSocket push
+        # Non-blocking SSE push
         asyncio.create_task(manager.send_personal_message(str(user_id), payload))
 
     except Exception as e:

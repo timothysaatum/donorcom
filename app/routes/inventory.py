@@ -56,8 +56,8 @@ async def create_blood_unit(
         "facility.manage",
         "inventory.manage", 
         "blood.inventory.manage"
-    ))
-):
+        ))
+    ):
     """
     Add a new blood unit to inventory with comprehensive logging.
     The blood bank and user who added it are automatically assigned.

@@ -510,8 +510,8 @@ class BloodRequestService:
         )
 
     async def update_request(
-        self, request_id: UUID, data: BloodRequestUpdate
-    ) -> BloodRequest:
+            self, request_id: UUID, data: BloodRequestUpdate
+        ) -> BloodRequest:
         """Update a request and handle intelligent cancellation - FIXED"""
         request = await self.get_request(request_id)
         if not request:

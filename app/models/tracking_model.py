@@ -33,7 +33,6 @@ class TrackState(Base):
         DateTime(timezone=True), 
         default=lambda: datetime.now(timezone.utc),
     )
-
     # --- Relationships ---
     blood_distribution_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         PGUUID(as_uuid=True),
@@ -50,7 +49,6 @@ class TrackState(Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=False,
     )
-
     blood_distribution = relationship("BloodDistribution", back_populates="track_states")
     blood_request = relationship("BloodRequest", back_populates="track_states")
     created_by = relationship("User", foreign_keys=[created_by_id])

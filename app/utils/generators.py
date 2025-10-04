@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime, timedelta
 import random
 import string
 
@@ -29,4 +29,4 @@ def calculate_expiry_date(blood_product: str) -> datetime.date:
 
     # Default to 35 days if product type not found
     days = shelf_life_days.get(blood_product.lower(), 35)
-    return (datetime.now() + datetime.timedelta(days=days)).date()
+    return (datetime.now() + timedelta(days=days)).date()
