@@ -9,6 +9,7 @@ from typing import AsyncGenerator
 from app.database import async_session
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
+from fastapi import HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,14 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         if session.in_transaction():
             await session.commit()
             logger.debug("Database transaction committed")
+
+    except HTTPException:
+        # Don't catch HTTPException - let FastAPI handle it
+        # But still rollback if there's an active transaction
+        if session and session.in_transaction():
+            await session.rollback()
+            logger.debug("Database transaction rolled back due to HTTPException")
+        raise
 
     except SQLAlchemyError as e:
         logger.error(f"Database error in get_db: {type(e).__name__}: {e}")
