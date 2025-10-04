@@ -1,145 +1,167 @@
-from datetime import datetime, timezone
-from typing import Dict, List
+"""
+SSE Notification Manager
+
+Manages Server-Sent Events (SSE) connections for real-time notifications.
+"""
+
 import asyncio
 import logging
+from typing import Dict, List, Optional
+from datetime import datetime, timezone
+
 logger = logging.getLogger(__name__)
 
 
 class ConnectionManager:
-    """SSE Connection Manager for real-time notifications"""
+    """Manages SSE connections and notifications"""
 
     def __init__(self):
-        # user_id -> list of asyncio.Queue (for multiple tabs/devices)
-        self.sse_connections: Dict[str, List[asyncio.Queue]] = {}
+        # Store connections: user_id -> list of queues
+        self._connections: Dict[str, List[asyncio.Queue]] = {}
+        self._lock = asyncio.Lock()
 
-    def add_sse_connection(self, user_id: str) -> asyncio.Queue:
-        """Add a new SSE connection (queue) for a user."""
-        queue = asyncio.Queue(maxsize=100)  # Prevent memory issues
-        if user_id not in self.sse_connections:
-            self.sse_connections[user_id] = []
-        self.sse_connections[user_id].append(queue)
+    async def add_sse_connection(self, user_id: str) -> asyncio.Queue:
+        """
+        Add a new SSE connection for a user.
 
-        logger.info(
-            f"SSE connection added for user {user_id}. "
-            f"Total connections for user: {len(self.sse_connections[user_id])}"
-        )
-        return queue
+        Args:
+            user_id: User ID to add connection for
 
-    def disconnect_sse(self, user_id: str, queue: asyncio.Queue):
-        """Remove an SSE connection (queue) for a user."""
-        if user_id in self.sse_connections:
-            try:
-                self.sse_connections[user_id].remove(queue)
-                if not self.sse_connections[user_id]:
-                    del self.sse_connections[user_id]
-                logger.info(f"SSE connection removed for user {user_id}")
-            except ValueError:
-                logger.warning(f"SSE queue not found for user {user_id}")
+        Returns:
+            asyncio.Queue: Queue for sending events to this connection
+        """
+        async with self._lock:
+            if user_id not in self._connections:
+                self._connections[user_id] = []
+
+            # Create a new queue for this connection
+            queue = asyncio.Queue(maxsize=100)
+            self._connections[user_id].append(queue)
+
+            logger.info(
+                f"SSE connection added for user {user_id}. Total connections: {len(self._connections[user_id])}"
+            )
+            return queue
+
+    async def disconnect_sse(self, user_id: str, queue: asyncio.Queue):
+        """
+        Remove an SSE connection for a user.
+
+        Args:
+            user_id: User ID to remove connection for
+            queue: Queue to remove
+        """
+        async with self._lock:
+            if user_id in self._connections:
+                try:
+                    self._connections[user_id].remove(queue)
+
+                    # Clean up empty user entries
+                    if not self._connections[user_id]:
+                        del self._connections[user_id]
+
+                    logger.info(f"SSE connection removed for user {user_id}")
+                except ValueError:
+                    logger.warning(f"Queue not found for user {user_id}")
+
+    def get_user_connection_count(self, user_id: str) -> int:
+        """
+        Get the number of active connections for a specific user.
+
+        Args:
+            user_id: User ID to check connections for
+
+        Returns:
+            int: Number of active connections for the user
+        """
+        return len(self._connections.get(user_id, []))
 
     async def send_personal_message(self, user_id: str, message: dict) -> bool:
         """
-        Send a message to a specific user via SSE.
-        Returns True if message was queued, False if user not connected.
-        """
-        user_id = str(user_id)
-        queues = self.sse_connections.get(user_id, [])
+        Send a message to a specific user's connections.
 
-        if not queues:
-            logger.debug(f"No active SSE connections for user {user_id}")
+        Args:
+            user_id: User ID to send message to
+            message: Message dictionary to send
+
+        Returns:
+            bool: True if message was sent to at least one connection
+        """
+        if user_id not in self._connections:
+            logger.debug(f"No connections found for user {user_id}")
             return False
 
-        # Send to all connections for this user (multiple tabs/devices)
+        queues = self._connections[user_id].copy()
         sent_count = 0
-        dead_queues = []
 
-        for queue in queues[:]:  # Copy list to avoid modification during iteration
+        for queue in queues:
             try:
-                # Non-blocking put with timeout
-                try:
-                    queue.put_nowait(message)
-                    sent_count += 1
-                except asyncio.QueueFull:
-                    logger.warning(
-                        f"Queue full for user {user_id}, dropping oldest message"
-                    )
-                    # Drop oldest message and add new one
-                    try:
-                        queue.get_nowait()
-                        queue.put_nowait(message)
-                        sent_count += 1
-                    except:
-                        dead_queues.append(queue)
+                await queue.put(message)
+                sent_count += 1
             except Exception as e:
-                logger.error(f"Failed to queue message for user {user_id}: {e}")
-                dead_queues.append(queue)
+                logger.error(f"Failed to send message to user {user_id}: {e}")
 
-        # Clean up dead queues
-        for dead_queue in dead_queues:
-            self.disconnect_sse(user_id, dead_queue)
-
-        if sent_count > 0:
-            logger.debug(
-                f"Message queued for user {user_id} "
-                f"({sent_count}/{len(queues)} connections)"
-            )
-
+        logger.debug(
+            f"Message sent to {sent_count} connections for user {user_id}"
+        )
         return sent_count > 0
 
     async def broadcast(self, message: dict) -> int:
         """
-        Send message to all connected users via SSE.
-        Returns the number of successful deliveries.
+        Broadcast a message to all connected users.
+
+        Args:
+            message: Message dictionary to broadcast
+
+        Returns:
+            int: Number of connections message was sent to
         """
-        total_sent = 0
-        dead_connections = []
+        sent_count = 0
 
-        for user_id, queues in list(self.sse_connections.items()):
-            for queue in queues[:]:
-                try:
-                    try:
-                        queue.put_nowait(message)
-                        total_sent += 1
-                    except asyncio.QueueFull:
-                        # Try to make room
-                        try:
-                            queue.get_nowait()
-                            queue.put_nowait(message)
-                            total_sent += 1
-                        except:
-                            dead_connections.append((user_id, queue))
-                except Exception as e:
-                    logger.error(f"Failed to broadcast to user {user_id}: {e}")
-                    dead_connections.append((user_id, queue))
+        for user_id in list(self._connections.keys()):
+            if await self.send_personal_message(user_id, message):
+                sent_count += len(self._connections.get(user_id, []))
 
-        # Clean up dead connections
-        for user_id, queue in dead_connections:
-            self.disconnect_sse(user_id, queue)
-
-        logger.info(f"Broadcast sent to {total_sent} connections")
-        return total_sent
-
-    def get_connected_users(self) -> List[str]:
-        """Get list of currently connected user IDs."""
-        return list(self.sse_connections.keys())
-
-    def get_connection_count(self, user_id: str = None) -> int:
-        """
-        Get number of SSE connections.
-        If user_id provided, returns connections for that user.
-        Otherwise, returns total connections across all users.
-        """
-        if user_id:
-            return len(self.sse_connections.get(str(user_id), []))
-        return sum(len(queues) for queues in self.sse_connections.values())
+        logger.info(f"Broadcast message sent to {sent_count} connections")
+        return sent_count
 
     def get_stats(self) -> dict:
-        """Get connection statistics."""
+        """
+        Get connection statistics.
+
+        Returns:
+            dict: Statistics about current connections
+        """
+        total_connections = sum(len(queues) for queues in self._connections.values())
+        active_users = len(self._connections)
+
         return {
-            "total_users": len(self.sse_connections),
-            "total_connections": self.get_connection_count(),
-            "users": {
-                user_id: len(queues) for user_id, queues in self.sse_connections.items()
+            "total_connections": total_connections,
+            "active_users": active_users,
+            "users": list(self._connections.keys()),
+            "connections_per_user": {
+                user_id: len(queues)
+                for user_id, queues in self._connections.items()
             },
+        }
+
+
+# Global connection manager instance
+manager = ConnectionManager()
+
+
+__all__ = ["ConnectionManager", "manager"]
+        total_connections = sum(len(queues) for queues in self.sse_connections.values())
+        active_users = len(self.sse_connections)
+
+        return {
+            "total_connections": total_connections,
+            "active_users": active_users,
+            "users": list(self.sse_connections.keys()),
+            "connections_per_user": {
+                user_id: len(queues)
+                for user_id, queues in self.sse_connections.items()
+            }
         }
 
     async def disconnect_user_by_permission_change(self, user_id: str):
