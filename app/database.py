@@ -61,8 +61,11 @@ from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 from app.db.base import Base
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 DATABASE_URL = settings.DATABASE_URL
 
@@ -77,27 +80,32 @@ IS_SERVERLESS = (
 )
 
 # --- Async engine (FastAPI runtime) ---
-# Serverless-optimized configuration
+# Critical: Use NullPool for serverless to prevent connection conflicts
 if IS_SERVERLESS:
+    logger.info("Configuring database for serverless environment")
+
+    # Add PostgreSQL-specific settings
+    if url.get_backend_name() == "postgresql":
+        connect_args.update(
+            {
+                "server_settings": {
+                    "application_name": "fastapi_vercel",
+                    "jit": "off",
+                },
+                "command_timeout": 30,
+            }
+        )
+
+    # Use NullPool to avoid connection reuse issues in serverless
     engine = create_async_engine(
         DATABASE_URL,
-        connect_args={
-            **connect_args,
-            "server_settings": {
-                "application_name": "fastapi_vercel",
-                "jit": "off",  # Disable JIT for faster cold starts
-            },
-            "command_timeout": 10,  # Shorter timeout for serverless
-            "timeout": 10,
-        },
-        pool_size=1,  # Minimal pool for serverless
-        max_overflow=0,  # No overflow connections
-        pool_pre_ping=True,  # Check connection health before use
-        pool_recycle=300,  # Recycle connections after 5 minutes
+        connect_args=connect_args,
+        poolclass=NullPool,  # CRITICAL: No pooling in serverless
         echo=(settings.ENVIRONMENT != "production"),
     )
 else:
     # Traditional configuration for local development
+    logger.info("Configuring database for local/traditional environment")
     engine = create_async_engine(
         DATABASE_URL,
         connect_args=connect_args,
@@ -108,11 +116,13 @@ else:
         echo=(settings.ENVIRONMENT != "production"),
     )
 
+# Create session factory
 async_session = async_sessionmaker(
     bind=engine,
     class_=AsyncSession,
     expire_on_commit=False,
-    autoflush=False,  # Prevent automatic flushes
+    autocommit=False,
+    autoflush=False,
 )
 
 # --- Sync engine (Alembic migrations) ---
@@ -124,7 +134,7 @@ elif "+aiosqlite" in DATABASE_URL:
 
 sync_engine = create_engine(
     SYNC_DATABASE_URL,
-    connect_args=connect_args,
+    connect_args=connect_args if url.get_backend_name() == "sqlite" else {},
     echo=(settings.ENVIRONMENT != "production"),
 )
 
@@ -141,10 +151,13 @@ from app.models.distribution import BloodDistribution  # noqa
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        logging.info("Database initialized successfully.")
+        logger.info("Database initialized successfully.")
 
 
 async def close_db():
     """Close database connections gracefully"""
-    await engine.dispose()
-    logging.info("Database connections closed.")
+    try:
+        await engine.dispose()
+        logger.info("Database connections closed.")
+    except Exception as e:
+        logger.error(f"Error closing database connections: {e}")
