@@ -6,8 +6,7 @@ Manages Server-Sent Events (SSE) connections for real-time notifications.
 
 import asyncio
 import logging
-from typing import Dict, List, Optional
-from datetime import datetime, timezone
+from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -147,35 +146,4 @@ class ConnectionManager:
 
 
 # Global connection manager instance
-manager = ConnectionManager()
-
-
-__all__ = ["ConnectionManager", "manager"]
-        total_connections = sum(len(queues) for queues in self.sse_connections.values())
-        active_users = len(self.sse_connections)
-
-        return {
-            "total_connections": total_connections,
-            "active_users": active_users,
-            "users": list(self.sse_connections.keys()),
-            "connections_per_user": {
-                user_id: len(queues)
-                for user_id, queues in self.sse_connections.items()
-            }
-        }
-
-    async def disconnect_user_by_permission_change(self, user_id: str):
-        """Force disconnect when permissions are revoked"""
-        if user_id in self.active_connections:
-            # Send termination event before closing
-            termination_event = {
-                "type": "connection_terminated",
-                "reason": "permissions_revoked",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-            await self.send_personal_message(termination_event, user_id)
-            self.disconnect_sse(user_id, self.active_connections[user_id])
-
-
-# Create global manager instance
 manager = ConnectionManager()
