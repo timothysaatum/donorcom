@@ -203,7 +203,7 @@ async def create_blood_unit(
             ip_address=client_ip
         )
         
-        raise HTTPException(status_code=500, detail="Blood unit creation failed")
+        raise HTTPException(status_code=500, detail=f"Blood unit creation failed {str(e)}")
 
 
 @router.post("/batch", response_model=BatchOperationResponse, status_code=status.HTTP_201_CREATED)

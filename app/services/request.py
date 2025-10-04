@@ -237,7 +237,6 @@ class BloodRequestService:
                 source_facility_name = name if name else "Unknown Facility"
                 self._facility_name_cache[source_key] = source_facility_name
 
-
         return BloodRequestResponse(
             id=request.id,
             requester_id=request.requester_id,
@@ -266,7 +265,7 @@ class BloodRequestService:
     ) -> BloodRequestBulkCreateResponse:
         """Create requests to multiple facilities with intelligent grouping - OPTIMIZED"""
 
-        # Get requester with facility relationships
+        # Get requester with facility relationships - EAGERLY LOADED
         requester_result = await self.db.execute(
             select(User)
             .options(selectinload(User.facility), selectinload(User.work_facility))
@@ -276,12 +275,12 @@ class BloodRequestService:
         if not requester:
             raise HTTPException(status_code=404, detail="Requester not found")
 
-        # Identify requester's facility (source facility)
-        source_facility_id = (
-            requester.facility.id
-            if requester.facility
-            else (requester.work_facility.id if requester.work_facility else None)
-        )
+        # Identify requester's facility (source facility) - ACCESS EAGERLY LOADED DATA
+        source_facility_id = None
+        if requester.facility:
+            source_facility_id = requester.facility.id
+        elif requester.work_facility:
+            source_facility_id = requester.work_facility.id
 
         if not source_facility_id:
             raise HTTPException(
@@ -289,7 +288,7 @@ class BloodRequestService:
                 detail="User must be associated with a facility to make requests.",
             )
 
-        # Self-request prevention - compare with source facility instead of inferring
+        # Self-request prevention
         if source_facility_id:
             original_count = len(data.facility_ids)
             data.facility_ids = [
@@ -330,8 +329,8 @@ class BloodRequestService:
                 # Create blood request with explicit source facility
                 new_request = BloodRequest(
                     requester_id=requester_id,
-                    facility_id=facility_id,  # Target facility
-                    source_facility_id=source_facility_id,  # Source facility
+                    facility_id=facility_id,
+                    source_facility_id=source_facility_id,
                     request_group_id=request_group_id,
                     is_master_request=is_master,
                     blood_type=data.blood_type,
@@ -340,34 +339,32 @@ class BloodRequestService:
                     notes=data.notes,
                     request_status=RequestStatus.PENDING,
                     priority=data.priority,
+                    option="sent",  # Explicitly set option
                 )
                 self.db.add(new_request)
-                await self.db.flush()  # ensures new_request.id is available
+                created_requests.append(new_request)
 
-                # Create initial track state
+            # Flush to get IDs for all requests
+            await self.db.flush()
+
+            # Create track states for all requests
+            for new_request in created_requests:
+                facility_name = facility_map.get(
+                    new_request.facility_id, "Unknown Facility"
+                )
                 track_state = TrackState(
                     blood_request_id=new_request.id,
                     status=TrackStateStatus.PENDING_RECEIVE,
-                    location=facility_map[facility_id],
+                    location=facility_name,
                     notes="Request created, awaiting processing",
                     created_by_id=requester_id,
                 )
                 self.db.add(track_state)
-                created_requests.append(new_request)
 
-            # Final commit
+            # Commit all changes together
             await self.db.commit()
 
-            # Send notification using the utility function
-            facility_names = ", ".join([facility_map[fid] for fid in data.facility_ids])
-            await notify(
-                self.db,
-                requester_id,
-                "Blood Requests Created",
-                f"Successfully created requests for {data.blood_product} ({data.blood_type}) - {data.quantity_requested} units to {len(data.facility_ids)} facilities: {facility_names}",
-            )
-
-            # Reload all created requests with relationships
+            # Reload all created requests with relationships AFTER commit
             request_ids = [req.id for req in created_requests]
             result = await self.db.execute(
                 select(BloodRequest)
@@ -383,6 +380,19 @@ class BloodRequestService:
             )
             refreshed_requests = result.scalars().all()
 
+            # Send notification AFTER everything is committed
+            facility_names = ", ".join([facility_map[fid] for fid in data.facility_ids])
+            try:
+                await notify(
+                    self.db,
+                    requester_id,
+                    "Blood Requests Created",
+                    f"Successfully created requests for {data.blood_product} ({data.blood_type}) - {data.quantity_requested} units to {len(data.facility_ids)} facilities: {facility_names}",
+                )
+            except Exception as notify_error:
+                # Log notification error but don't fail the request creation
+                logger.error(f"Failed to send notification: {str(notify_error)}")
+
             logger.info(
                 f"Created {len(created_requests)} blood requests with group ID: {request_group_id}"
             )
@@ -396,11 +406,14 @@ class BloodRequestService:
                 message=f"Successfully created requests to {len(created_requests)} facilities",
             )
 
+        except HTTPException:
+            await self.db.rollback()
+            raise
         except Exception as e:
             await self.db.rollback()
-            logger.error(f"Error creating bulk requests: {str(e)}")
+            logger.error(f"Error creating bulk requests: {str(e)}", exc_info=True)
             raise HTTPException(
-                status_code=500, detail=f"Failed to create blood requests{str(e)}"
+                status_code=500, detail=f"Failed to create blood requests: {str(e)}"
             )
 
     async def _validate_facilities(self, facility_ids: List[UUID]) -> None:
@@ -510,10 +523,22 @@ class BloodRequestService:
         )
 
     async def update_request(
-            self, request_id: UUID, data: BloodRequestUpdate
-        ) -> BloodRequest:
+        self, request_id: UUID, data: BloodRequestUpdate
+    ) -> BloodRequest:
         """Update a request and handle intelligent cancellation - FIXED"""
-        request = await self.get_request(request_id)
+        # Load request with ALL relationships eagerly
+        result = await self.db.execute(
+            select(BloodRequest)
+            .options(
+                selectinload(BloodRequest.target_facility),
+                selectinload(BloodRequest.source_facility),
+                selectinload(BloodRequest.requester),
+                selectinload(BloodRequest.distributions),
+            )
+            .where(BloodRequest.id == request_id)
+        )
+        request = result.scalar_one_or_none()
+
         if not request:
             raise HTTPException(status_code=404, detail="Blood request not found")
 
@@ -545,27 +570,31 @@ class BloodRequestService:
                     new_status.value, TrackStateStatus.PENDING_RECEIVE
                 )
 
+                # Get facility name safely
+                location = "Unknown Location"
+                if request.target_facility and request.target_facility.facility_name:
+                    location = request.target_facility.facility_name
+
                 track_state = TrackState(
                     blood_request_id=request.id,
                     status=mapped_status,
-                    location=(
-                        request.target_facility.facility_name
-                        if request.target_facility
-                        else None
-                    ),
+                    location=location,
                     notes=f"Request status changed from {old_status.value} to {new_status.value}",
                     created_by_id=request.requester_id,
                 )
                 self.db.add(track_state)
                 await self.db.commit()
 
-                # Send notification using the utility function
-                await notify(
-                    self.db,
-                    request.requester_id,
-                    "Request Status Updated",
-                    f"Your blood request for {request.blood_product} ({request.blood_type}) has been updated from {old_status.value} to {new_status.value}",
-                )
+                # Send notification AFTER commit
+                try:
+                    await notify(
+                        self.db,
+                        request.requester_id,
+                        "Request Status Updated",
+                        f"Your blood request for {request.blood_product} ({request.blood_type}) has been updated from {old_status.value} to {new_status.value}",
+                    )
+                except Exception as notify_error:
+                    logger.error(f"Failed to send notification: {str(notify_error)}")
 
             # Handle intelligent cancellation if request is accepted
             if (
@@ -579,9 +608,14 @@ class BloodRequestService:
                     f"Cancelled {cancelled_count} related requests after acceptance of request {request.id}"
                 )
 
+        except HTTPException:
+            await self.db.rollback()
+            raise
         except Exception as e:
             await self.db.rollback()
-            logger.error(f"Failed to update request {request_id}: {str(e)}")
+            logger.error(
+                f"Failed to update request {request_id}: {str(e)}", exc_info=True
+            )
             raise HTTPException(status_code=500, detail="Failed to update request")
 
         return request
