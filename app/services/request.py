@@ -361,22 +361,34 @@ class BloodRequestService:
                 detail="User must be associated with a facility to make requests.",
             )
 
-        # Self-request prevention
-        if source_facility_id:
-            original_count = len(data.facility_ids)
-            data.facility_ids = [
-                fid for fid in data.facility_ids if fid != source_facility_id
-            ]
-            if len(data.facility_ids) != original_count:
-                logger.warning(
-                    f"Removed requester's own facility from request list. "
-                    f"Original: {original_count}, After: {len(data.facility_ids)}"
+        # Self-request prevention - CHECK BEFORE MODIFYING
+        original_facility_ids = data.facility_ids.copy()
+        filtered_facility_ids = [
+            fid for fid in data.facility_ids if fid != source_facility_id
+        ]
+
+        if len(filtered_facility_ids) == 0:
+            if (
+                len(original_facility_ids) == 1
+                and original_facility_ids[0] == source_facility_id
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot send request to your own facility. Please select different facilities.",
+                )
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="All selected facilities were filtered out. Please select valid target facilities.",
                 )
 
-        if not data.facility_ids:
-            raise HTTPException(
-                status_code=400,
-                detail="Cannot send requests to your own facility. Please select other facilities.",
+        # Update the data with filtered list
+        data.facility_ids = filtered_facility_ids
+
+        if len(filtered_facility_ids) != len(original_facility_ids):
+            logger.warning(
+                f"Removed requester's own facility from request list. "
+                f"Original: {len(original_facility_ids)}, After: {len(filtered_facility_ids)}"
             )
 
         # Validate facilities exist & fetch their names
@@ -412,7 +424,7 @@ class BloodRequestService:
                     notes=data.notes,
                     request_status=RequestStatus.PENDING,
                     priority=data.priority,
-                    option="sent",  # Explicitly set option
+                    option="sent",
                 )
                 self.db.add(new_request)
                 created_requests.append(new_request)
@@ -437,23 +449,7 @@ class BloodRequestService:
             # Commit all changes together
             await self.db.commit()
 
-            # Reload all created requests with ALL NESTED relationships AFTER commit
-            request_ids = [req.id for req in created_requests]
-            result = await self.db.execute(
-                select(BloodRequest)
-                .options(
-                    selectinload(BloodRequest.target_facility),
-                    selectinload(BloodRequest.source_facility),
-                    # Load requester with NESTED selectinload for facility relationships
-                    selectinload(BloodRequest.requester).options(
-                        selectinload(User.facility), selectinload(User.work_facility)
-                    ),
-                )
-                .where(BloodRequest.id.in_(request_ids))
-            )
-            refreshed_requests = result.scalars().all()
-
-            # Send notification AFTER everything is committed
+            # Send notification BEFORE reloading (use cached facility_map)
             facility_names = ", ".join([facility_map[fid] for fid in data.facility_ids])
             try:
                 await notify(
@@ -463,8 +459,37 @@ class BloodRequestService:
                     f"Successfully created requests for {data.blood_product} ({data.blood_type}) - {data.quantity_requested} units to {len(data.facility_ids)} facilities: {facility_names}",
                 )
             except Exception as notify_error:
-                # Log notification error but don't fail the request creation
                 logger.error(f"Failed to send notification: {str(notify_error)}")
+
+            # NOW reload with proper eager loading
+            request_ids = [req.id for req in created_requests]
+            result = await self.db.execute(
+                select(BloodRequest)
+                .options(
+                    selectinload(BloodRequest.target_facility),
+                    selectinload(BloodRequest.source_facility),
+                    selectinload(BloodRequest.requester).selectinload(User.facility),
+                    selectinload(BloodRequest.requester).selectinload(
+                        User.work_facility
+                    ),
+                )
+                .where(BloodRequest.id.in_(request_ids))
+            )
+            refreshed_requests = result.scalars().all()
+
+            # FORCE access to all relationships BEFORE conversion
+            # This ensures everything is loaded into memory
+            for req in refreshed_requests:
+                # Force load all relationships by accessing them
+                _ = req.target_facility.facility_name if req.target_facility else None
+                _ = req.source_facility.facility_name if req.source_facility else None
+                if req.requester:
+                    _ = req.requester.first_name
+                    _ = req.requester.last_name
+                    if req.requester.facility:
+                        _ = req.requester.facility.facility_name
+                    if req.requester.work_facility:
+                        _ = req.requester.work_facility.facility_name
 
             logger.info(
                 f"Created {len(created_requests)} blood requests with group ID: {request_group_id}"
@@ -733,9 +758,9 @@ class BloodRequestService:
                 )
                 return 0
 
-            logger.info(
-                f"Found {len(requests_to_cancel)} requests to cancel in group {request_group_id}"
-            )
+                logger.info(
+                    f"Found {len(requests_to_cancel)} requests to cancel in group {request_group_id}"
+                )
 
             update_stmt = (
                 update(BloodRequest)
