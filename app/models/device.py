@@ -14,6 +14,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import ForeignKey, func
 
 from app.db.base import Base
+from app.utils.device_trust_calculator import DeviceTrustData, DeviceIdentifier
 
 
 class DeviceTrust(Base):
@@ -209,9 +210,9 @@ class DeviceTrust(Base):
             location_consistency_score=self.location_consistency_score,
         )
 
-        new_score = AdvancedDeviceIdentifier.calculate_trust_score(trust_data)
+        new_score = DeviceIdentifier.calculate_trust_score(trust_data)
         self.trust_score = new_score
-        self.trust_level = AdvancedDeviceIdentifier.determine_trust_level(new_score)
+        self.trust_level = DeviceIdentifier.determine_trust_level(new_score)
         self.is_trusted = new_score >= 50
         self.last_trust_update = datetime.now(timezone.utc)
 

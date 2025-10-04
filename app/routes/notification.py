@@ -150,21 +150,271 @@ router = APIRouter(prefix="/notifications", tags=["Notifications"])
 @router.get("/sse/stream")
 async def sse_notifications(
     request: Request,
+    access_token: str,  # Renamed from 'token' for clarity
     db=Depends(get_db),
-    current_user=Depends(
-        require_permission(
-            "facility.manage",
-            "laboratory.manage",
-            "blood.inventory.manage",
-            validate_session=True,
-        )
-    ),
 ):
     """
     SSE endpoint for real-time notifications streaming with enhanced security.
     Maintains a persistent connection with periodic authorization checks.
+
+    Query Parameters:
+        access_token: JWT access token for authentication (required since SSE can't use headers)
+
+    Example:
+        GET /notifications/sse/stream?access_token=your_jwt_token_here
+
+    Security Measures:
+    - Token is validated immediately and not logged
+    - Short-lived tokens recommended (use refresh mechanism)
+    - Connection auto-terminates on token expiry
+    - IP validation against token's original IP (optional)
+    - Rate limiting recommended at proxy/gateway level
     """
+
+    # Security: Get client IP for validation
+    client_ip = request.client.host if request.client else "unknown"
+    
+    # Validate token and get user
+    try:
+        # Decode token without logging it
+        payload = TokenManager.decode_token(access_token)
+        user_id_from_token = payload.get("sub")
+        session_id = payload.get("sid")
+        token_exp = payload.get("exp")
+
+        if not user_id_from_token:
+            logger.warning(
+                "SSE connection denied - invalid token",
+                extra={
+                    "event_type": "sse_invalid_token",
+                    "ip_address": client_ip,
+                },
+            )
+            # Return generic error to avoid information leakage
+            return StreamingResponse(
+                iter(
+                    [
+                        f"data: {json.dumps({'type': 'error', 'message': 'Authentication failed'})}\n\n"
+                    ]
+                ),
+                media_type="text/event-stream",
+                status_code=401,
+            )
+
+        # Check token expiration
+        if token_exp:
+            token_expiry = datetime.fromtimestamp(token_exp, tz=timezone.utc)
+            if datetime.now(timezone.utc) >= token_expiry:
+                logger.warning(
+                    "SSE connection denied - token expired",
+                    extra={
+                        "event_type": "sse_token_expired",
+                        "user_id": user_id_from_token,
+                        "ip_address": client_ip,
+                    },
+                )
+                return StreamingResponse(
+                    iter(
+                        [
+                            f"data: {json.dumps({'type': 'error', 'message': 'Token expired'})}\n\n"
+                        ]
+                    ),
+                    media_type="text/event-stream",
+                    status_code=401,
+                )
+
+        # Fetch user with permissions
+        result = await db.execute(
+            select(User)
+            .options(selectinload(User.roles).selectinload(Role.permissions))
+            .where(User.id == uuid.UUID(user_id_from_token))
+        )
+        current_user = result.scalar_one_or_none()
+
+        if not current_user:
+            logger.warning(
+                "SSE connection denied - user not found",
+                extra={
+                    "event_type": "sse_user_not_found",
+                    "user_id": user_id_from_token,
+                    "ip_address": client_ip,
+                },
+            )
+            return StreamingResponse(
+                iter(
+                    [
+                        f"data: {json.dumps({'type': 'error', 'message': 'Authentication failed'})}\n\n"
+                    ]
+                ),
+                media_type="text/event-stream",
+                status_code=401,
+            )
+
+        # Check user status
+        if (
+            not current_user.is_active
+            or not current_user.status
+            or current_user.is_locked
+        ):
+            logger.warning(
+                "SSE connection denied - account inactive",
+                extra={
+                    "event_type": "sse_account_inactive",
+                    "user_id": user_id_from_token,
+                    "ip_address": client_ip,
+                },
+            )
+            return StreamingResponse(
+                iter(
+                    [
+                        f"data: {json.dumps({'type': 'error', 'message': 'Account inactive'})}\n\n"
+                    ]
+                ),
+                media_type="text/event-stream",
+                status_code=403,
+            )
+
+        # Check permissions
+        required_perms = [
+            "facility.manage",
+            "laboratory.manage",
+            "blood.inventory.manage",
+        ]
+        has_permission = any(
+            current_user.has_permission(perm) for perm in required_perms
+        )
+
+        if not has_permission:
+            logger.warning(
+                "SSE connection denied - insufficient permissions",
+                extra={
+                    "event_type": "sse_permission_denied",
+                    "user_id": user_id_from_token,
+                    "ip_address": client_ip,
+                },
+            )
+            return StreamingResponse(
+                iter(
+                    [
+                        f"data: {json.dumps({'type': 'error', 'message': 'Insufficient permissions'})}\n\n"
+                    ]
+                ),
+                media_type="text/event-stream",
+                status_code=403,
+            )
+
+        # Validate session if present
+        if session_id:
+            session = await SessionManager.validate_session(
+                db=db, session_id=uuid.UUID(session_id), request=request
+            )
+            if not session:
+                logger.warning(
+                    "SSE connection denied - invalid session",
+                    extra={
+                        "event_type": "sse_invalid_session",
+                        "user_id": user_id_from_token,
+                        "session_id": session_id,
+                        "ip_address": client_ip,
+                    },
+                )
+                return StreamingResponse(
+                    iter(
+                        [
+                            f"data: {json.dumps({'type': 'error', 'message': 'Invalid session'})}\n\n"
+                        ]
+                    ),
+                    media_type="text/event-stream",
+                    status_code=401,
+                )
+            
+            # Security: Check if IP matches session IP (optional strict mode)
+            # Uncomment to enable strict IP validation
+            # if session.ip_address and session.ip_address != client_ip:
+            #     logger.warning(
+            #         "SSE connection denied - IP mismatch",
+            #         extra={
+            #             "event_type": "sse_ip_mismatch",
+            #             "user_id": user_id_from_token,
+            #             "expected_ip": session.ip_address,
+            #             "actual_ip": client_ip,
+            #         },
+            #     )
+            #     return StreamingResponse(
+            #         iter(
+            #             [
+            #                 f"data: {json.dumps({'type': 'error', 'message': 'IP validation failed'})}\n\n"
+            #             ]
+            #         ),
+            #         media_type="text/event-stream",
+            #         status_code=403,
+            #     )
+
+    except ValueError as e:
+        # Token decode error
+        logger.warning(
+            f"SSE authentication error - invalid token format: {str(e)}",
+            extra={
+                "event_type": "sse_auth_error",
+                "ip_address": client_ip,
+                "error_type": "invalid_token_format",
+            },
+        )
+        return StreamingResponse(
+            iter(
+                [
+                    f"data: {json.dumps({'type': 'error', 'message': 'Authentication failed'})}\n\n"
+                ]
+            ),
+            media_type="text/event-stream",
+            status_code=401,
+        )
+    except Exception as e:
+        logger.error(
+            f"SSE authentication error: {str(e)}",
+            extra={
+                "event_type": "sse_auth_error",
+                "error": str(e),
+                "ip_address": client_ip,
+            },
+            exc_info=True,
+        )
+        return StreamingResponse(
+            iter(
+                [
+                    f"data: {json.dumps({'type': 'error', 'message': 'Authentication failed'})}\n\n"
+                ]
+            ),
+            media_type="text/event-stream",
+            status_code=500,
+        )
+
     user_id = str(current_user.id)
+    
+    # Security: Limit concurrent connections per user
+    existing_connections = manager.get_user_connection_count(user_id)
+    MAX_CONNECTIONS_PER_USER = 3  # Adjust as needed
+    
+    if existing_connections >= MAX_CONNECTIONS_PER_USER:
+        logger.warning(
+            f"SSE connection denied - max connections reached for user {user_id}",
+            extra={
+                "event_type": "sse_max_connections_reached",
+                "user_id": user_id,
+                "existing_connections": existing_connections,
+                "ip_address": client_ip,
+            },
+        )
+        return StreamingResponse(
+            iter(
+                [
+                    f"data: {json.dumps({'type': 'error', 'message': 'Maximum concurrent connections reached'})}\n\n"
+                ]
+            ),
+            media_type="text/event-stream",
+            status_code=429,
+        )
+    
     event_queue = manager.add_sse_connection(user_id)
 
     logger.info(
@@ -173,6 +423,8 @@ async def sse_notifications(
             "event_type": "sse_connection_established",
             "user_id": user_id,
             "user_email": current_user.email,
+            "ip_address": client_ip,
+            "token_expiry": token_exp,
         },
     )
 
@@ -180,8 +432,41 @@ async def sse_notifications(
         """
         Verify user still has required permissions and valid session.
         Returns True if authorized, False otherwise.
+        
+        Security: Re-validates token and checks for revocation
         """
         try:
+            # Re-validate the token (checks expiration and signature)
+            try:
+                payload = TokenManager.decode_token(access_token)
+                if not payload or payload.get("sub") != user_id:
+                    return False
+                
+                # Check if token has expired
+                token_exp = payload.get("exp")
+                if token_exp:
+                    token_expiry = datetime.fromtimestamp(token_exp, tz=timezone.utc)
+                    if datetime.now(timezone.utc) >= token_expiry:
+                        logger.warning(
+                            f"SSE auth check failed - token expired: {user_id}",
+                            extra={
+                                "event_type": "sse_token_expired_during_stream",
+                                "user_id": user_id,
+                            },
+                        )
+                        return False
+                        
+            except Exception as e:
+                logger.warning(
+                    f"SSE auth check failed - token validation error: {user_id}",
+                    extra={
+                        "event_type": "sse_token_validation_error",
+                        "user_id": user_id,
+                        "error": str(e),
+                    },
+                )
+                return False
+
             # Re-fetch user to get current permissions
             result = await db.execute(
                 select(User)
@@ -227,19 +512,7 @@ async def sse_notifications(
                 )
                 return False
 
-            # Validate session from authorization header
-            authorization_header = request.headers.get("authorization")
-            if not authorization_header or not authorization_header.startswith(
-                "Bearer "
-            ):
-                return False
-
-            token = authorization_header.split(" ")[1]
-            payload = TokenManager.decode_token(token)
-
-            if not payload:
-                return False
-
+            # Validate session if present
             session_id = payload.get("sid")
             if session_id:
                 session = await SessionManager.validate_session(

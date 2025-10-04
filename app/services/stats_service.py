@@ -427,7 +427,8 @@ class StatsService(BaseChartService):
             BloodDistribution.date_delivered.is_not(None),
             BloodDistribution.date_delivered >= from_date,
             BloodDistribution.date_delivered <= to_date,
-            BloodDistribution.status.in_(["DELIVERED", "DISPATCHED"]),
+            # FIXED: Use lowercase enum values instead of uppercase
+            BloodDistribution.status.in_(["delivered", "in transit"]),
         ]
 
         if db_product_names:
