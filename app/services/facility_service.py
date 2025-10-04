@@ -55,9 +55,8 @@ class FacilityService:
     async def create_facility_with_blood_bank(
         self, facility_data: FacilityWithBloodBankCreate, facility_manager_id: UUID
     ) -> Union[FacilityResponse, FacilityWithBloodBank]:
-        """
-        Create a facility and optionally its associated blood bank in a single transaction
-        """
+        """Create a facility and optionally its associated blood bank"""
+
         # Check for duplicate facility email
         result = await self.db.execute(
             select(Facility).where(
@@ -69,44 +68,39 @@ class FacilityService:
                 status_code=400, detail="Facility with this email already exists"
             )
 
-        # If blood bank data is provided, check for duplicate blood bank email
-        if facility_data.blood_bank:
+        # Store blood_bank_data BEFORE any overwrites
+        blood_bank_data = facility_data.blood_bank
+
+        # If blood bank data is provided, check for duplicate
+        if blood_bank_data:
             result = await self.db.execute(
-                select(BloodBank).where(
-                    BloodBank.email == facility_data.blood_bank.email
-                )
+                select(BloodBank).where(BloodBank.email == blood_bank_data.email)
             )
             if result.scalar_one_or_none():
                 raise HTTPException(
                     status_code=400, detail="Blood bank with this email already exists"
                 )
 
-        # Create facility first
-        facility_data = FacilityBase(
+        # Create facility
+        new_facility = Facility(
             facility_name=facility_data.facility_name,
             facility_email=facility_data.facility_email,
             facility_contact_number=facility_data.facility_contact_number,
             facility_digital_address=facility_data.facility_digital_address,
-        )
-
-        new_facility = Facility(
-            **facility_data.model_dump(
-                exclude={"facility_manager", "facility_manager_id"}
-            ),
-            facility_manager_id=facility_manager_id
+            facility_manager_id=facility_manager_id,
         )
 
         self.db.add(new_facility)
-        await self.db.flush()  # Flush to get the facility ID without committing the transaction
+        await self.db.flush()
 
         blood_bank = None
 
         # Create blood bank if data was provided
-        if facility_data.blood_bank:
+        if blood_bank_data:
             blood_bank = BloodBank(
-                **facility_data.blood_bank.model_dump(),
+                **blood_bank_data.model_dump(),
                 facility_id=new_facility.id,
-                manager_id=facility_manager_id  # Using the same manager for the blood bank
+                manager_id=facility_manager_id
             )
             self.db.add(blood_bank)
 
@@ -117,7 +111,7 @@ class FacilityService:
         if blood_bank:
             await self.db.refresh(blood_bank)
 
-        # Load the blood bank relationship if it was created
+        # Load relationships
         result = await self.db.execute(
             select(Facility)
             .options(
@@ -129,7 +123,8 @@ class FacilityService:
 
         facility_with_relations = result.scalar_one()
 
-        if facility_data.blood_bank:
+        # Return appropriate response
+        if blood_bank_data:
             return FacilityWithBloodBank.model_validate(
                 facility_with_relations, from_attributes=True
             )
