@@ -12,7 +12,7 @@ from fastapi import (
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 import os
 from app.models import User
@@ -288,7 +288,7 @@ async def refresh_token(
             raise HTTPException(status_code=401, detail="Invalid refresh token")
 
         # NEW: Check if refresh token has exceeded its absolute expiration
-        current_time = datetime.now()
+        current_time = datetime.now(timezone.utc)
         if current_time > refresh_token_record.absolute_expires_at:
             # Revoke the expired token
             await TokenManager.revoke_refresh_token(db, refresh_token_record.id)
@@ -380,7 +380,7 @@ async def refresh_token(
             raise HTTPException(status_code=401, detail="User not found")
 
         # Update last login time
-        user_with_relations.last_login = datetime.now()
+        user_with_relations.last_login = datetime.now(timezone.utc)
         await db.commit()
 
         duration_ms = (time.time() - start_time) * 1000
