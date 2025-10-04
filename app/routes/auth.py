@@ -442,8 +442,9 @@ async def refresh_token(
             },
             ip_address=session_data.get("client_ip"),
         )
+        detail = f"Login failed: {type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
 
-        raise HTTPException(status_code=500, detail="Internal server error")
+        raise HTTPException(status_code=500, detail=detail)
 
 
 @router.post("/logout")
