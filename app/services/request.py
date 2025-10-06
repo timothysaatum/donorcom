@@ -391,7 +391,13 @@ class BloodRequestService:
                 f"Original: {len(original_facility_ids)}, After: {len(filtered_facility_ids)}"
             )
 
-        # Validate facilities exist & fetch their names
+        # Validate facilities exist & fetch their names with security check
+        if len(data.facility_ids) > 100:  # Security: Prevent bulk request abuse
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot create requests to more than 100 facilities at once",
+            )
+
         facilities_result = await self.db.execute(
             select(Facility.id, Facility.facility_name).where(
                 Facility.id.in_(data.facility_ids)
@@ -399,8 +405,10 @@ class BloodRequestService:
         )
         facility_map = {row.id: row.facility_name for row in facilities_result}
         if len(facility_map) != len(data.facility_ids):
+            missing_ids = set(data.facility_ids) - set(facility_map.keys())
             raise HTTPException(
-                status_code=400, detail="One or more facilities not found"
+                status_code=400,
+                detail=f"One or more facilities not found. Invalid facility IDs: {len(missing_ids)}",
             )
 
         # Generate group ID
@@ -449,6 +457,12 @@ class BloodRequestService:
             # Commit all changes together
             await self.db.commit()
 
+            # IMPORTANT: Collect IDs BEFORE expiring session
+            request_ids = [req.id for req in created_requests]
+
+            # Performance: Expire old session objects to free memory
+            self.db.expire_all()
+
             # Send notification BEFORE reloading (use cached facility_map)
             facility_names = ", ".join([facility_map[fid] for fid in data.facility_ids])
             try:
@@ -462,7 +476,6 @@ class BloodRequestService:
                 logger.error(f"Failed to send notification: {str(notify_error)}")
 
             # NOW reload with proper eager loading
-            request_ids = [req.id for req in created_requests]
             result = await self.db.execute(
                 select(BloodRequest)
                 .options(
@@ -478,18 +491,39 @@ class BloodRequestService:
             refreshed_requests = result.scalars().all()
 
             # FORCE access to all relationships BEFORE conversion
-            # This ensures everything is loaded into memory
+            # This ensures everything is loaded into memory WITHOUT triggering lazy loads
             for req in refreshed_requests:
-                # Force load all relationships by accessing them
-                _ = req.target_facility.facility_name if req.target_facility else None
-                _ = req.source_facility.facility_name if req.source_facility else None
-                if req.requester:
-                    _ = req.requester.first_name
-                    _ = req.requester.last_name
-                    if req.requester.facility:
-                        _ = req.requester.facility.facility_name
-                    if req.requester.work_facility:
-                        _ = req.requester.work_facility.facility_name
+                try:
+                    # Use __dict__ access to safely load relationships without triggering lazy loads
+                    req_dict = req.__dict__
+
+                    # Force load facility relationships safely
+                    if "target_facility" in req_dict and req_dict["target_facility"]:
+                        _ = req_dict["target_facility"].__dict__.get("facility_name")
+
+                    if "source_facility" in req_dict and req_dict["source_facility"]:
+                        _ = req_dict["source_facility"].__dict__.get("facility_name")
+
+                    # Force load requester relationships safely
+                    if "requester" in req_dict and req_dict["requester"]:
+                        requester_dict = req_dict["requester"].__dict__
+                        _ = requester_dict.get("first_name")
+                        _ = requester_dict.get("last_name")
+
+                        if "facility" in requester_dict and requester_dict["facility"]:
+                            _ = requester_dict["facility"].__dict__.get("facility_name")
+
+                        if (
+                            "work_facility" in requester_dict
+                            and requester_dict["work_facility"]
+                        ):
+                            _ = requester_dict["work_facility"].__dict__.get(
+                                "facility_name"
+                            )
+                except Exception as load_error:
+                    logger.warning(
+                        f"Error pre-loading relationships for request {req.id}: {load_error}"
+                    )
 
             logger.info(
                 f"Created {len(created_requests)} blood requests with group ID: {request_group_id}"
@@ -758,9 +792,9 @@ class BloodRequestService:
                 )
                 return 0
 
-                logger.info(
-                    f"Found {len(requests_to_cancel)} requests to cancel in group {request_group_id}"
-                )
+            logger.info(
+                f"Found {len(requests_to_cancel)} requests to cancel in group {request_group_id}"
+            )
 
             update_stmt = (
                 update(BloodRequest)
