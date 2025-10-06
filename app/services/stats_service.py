@@ -44,8 +44,13 @@ class BloodProductProcessor:
         cls, selected_blood_products: Optional[List]
     ) -> List[str]:
         """Process and validate blood product selections, returning human-readable names."""
+        # Only use defaults if None is passed (not if empty list [])
         if selected_blood_products is None:
             return cls.DEFAULT_PRODUCTS.copy()
+
+        # If empty list is explicitly provided, return empty (user selected nothing)
+        if not selected_blood_products:
+            return []
 
         selected_products = []
         for product in selected_blood_products:
@@ -65,25 +70,25 @@ class BloodProductProcessor:
                         continue
 
         if not selected_products:
-            logger.warning("No valid blood products after processing, using defaults")
-            return cls.DEFAULT_PRODUCTS.copy()
+            logger.info(
+                "No valid blood products after processing, returning empty list"
+            )
+            return []
 
-        return list(set(selected_products))  # Remove duplicates
+        processed = list(set(selected_products))  # Remove duplicates
+        logger.info(f"Processed blood products: {processed}")
+        return processed
 
     @classmethod
     def get_db_product_names(cls, selected_product_names: List[str]) -> List[str]:
-        """Map human-readable product names to database names, handling variants."""
-        db_names = []
-        for product_name in selected_product_names:
-            db_names.append(product_name)
+        """Map human-readable product names to database names.
 
-            # Add known variants ONLY if the product is selected
-            if product_name == "Red Blood Cells":
-                db_names.append("Red Cells")
-            elif product_name == "Fresh Frozen Plasma":
-                db_names.append("Plasma")
-
-        return list(set(db_names))  # Remove duplicates
+        NOTE: Variants like 'Red Cells' vs 'Red Blood Cells' should be normalized
+        at the database level or during data entry, not during querying.
+        This ensures the chart only shows what the user explicitly requested.
+        """
+        # Return the product names as-is, no automatic variant addition
+        return list(set(selected_product_names))  # Remove duplicates only
 
     @classmethod
     def process_blood_types(
@@ -219,6 +224,9 @@ class BaseChartService(ABC):
         self, from_date: Optional[datetime], to_date: Optional[datetime]
     ) -> tuple[datetime, datetime]:
         """Validate and set default date range."""
+        original_from = from_date
+        original_to = to_date
+
         if to_date is None:
             to_date = datetime.now().replace(
                 hour=23, minute=59, second=59, microsecond=999999
@@ -233,6 +241,11 @@ class BaseChartService(ABC):
         date_diff = (to_date - from_date).days
         if date_diff > 365:
             raise ValueError("Date range cannot exceed 365 days")
+
+        logger.info(
+            f"Date range validated - Original: ({original_from}, {original_to}) -> "
+            f"Used: ({from_date.date()}, {to_date.date()}) [{date_diff} days]"
+        )
 
         return from_date, to_date
 
@@ -350,11 +363,24 @@ class StatsService(BaseChartService):
         return round(change, 2), direction
 
     async def get_dashboard_summary(self, facility_id: uuid.UUID) -> Dict[str, Any]:
-        """Get dashboard summary with today vs yesterday comparisons."""
+        """
+        Get dashboard summary with today vs yesterday comparisons.
+
+        SCALABLE HYBRID APPROACH:
+        1. Try to get TODAY's data from DashboardDailySummary (fast, cached)
+        2. If not found or stale (>5 min old), trigger immediate refresh
+        3. Return data from cache after refresh
+
+        This scales to thousands of users because:
+        - Most requests hit the cache (O(1) lookup)
+        - Cache is automatically refreshed every 5 minutes by scheduler
+        - Only triggers refresh if cache is missing/stale
+        - Single facility query (no table scans)
+        """
         today = date.today()
         yesterday = today - timedelta(days=1)
 
-        # Today's summary
+        # Try to get today's summary from cache first (FAST PATH)
         today_query = select(DashboardDailySummary).where(
             and_(
                 DashboardDailySummary.facility_id == facility_id,
@@ -363,7 +389,36 @@ class StatsService(BaseChartService):
         )
         today_summary = (await self.db.execute(today_query)).scalar_one_or_none()
 
-        # Yesterday's summary
+        # Check if cache is stale (updated more than 5 minutes ago)
+        cache_is_stale = False
+        if today_summary and today_summary.updated_at:
+            cache_age_seconds = (
+                datetime.now() - today_summary.updated_at
+            ).total_seconds()
+            cache_is_stale = cache_age_seconds > 300  # 5 minutes
+
+        # If no cache or stale, trigger immediate refresh (SLOW PATH - rare)
+        if not today_summary or cache_is_stale:
+            logger.info(
+                f"Dashboard cache {'missing' if not today_summary else 'stale'} "
+                f"for facility {facility_id}, triggering refresh"
+            )
+            try:
+                from app.services.dashboard_service import (
+                    refresh_facility_dashboard_metrics,
+                )
+
+                await refresh_facility_dashboard_metrics(self.db, facility_id, today)
+
+                # Re-fetch the refreshed summary
+                today_summary = (
+                    await self.db.execute(today_query)
+                ).scalar_one_or_none()
+            except Exception as refresh_error:
+                logger.error(f"Failed to refresh dashboard cache: {refresh_error}")
+                # Continue with stale data or zeros
+
+        # Get yesterday's summary for comparison (always from cache)
         yesterday_query = select(DashboardDailySummary).where(
             and_(
                 DashboardDailySummary.facility_id == facility_id,
@@ -374,14 +429,16 @@ class StatsService(BaseChartService):
             await self.db.execute(yesterday_query)
         ).scalar_one_or_none()
 
+        # If still no today summary after refresh, return zeros
         if not today_summary:
+            logger.warning(f"No dashboard data available for facility {facility_id}")
             return {
                 "stock": {"value": 0, "change": 0.0, "direction": "neutral"},
                 "transferred": {"value": 0, "change": 0.0, "direction": "neutral"},
                 "requests": {"value": 0, "change": 0.0, "direction": "neutral"},
             }
 
-        # Calculate changes
+        # Calculate changes using yesterday's cached data
         y_stock = yesterday_summary.total_stock if yesterday_summary else 0
         y_transferred = yesterday_summary.total_transferred if yesterday_summary else 0
         y_requests = yesterday_summary.total_requests if yesterday_summary else 0
@@ -394,6 +451,13 @@ class StatsService(BaseChartService):
         )
         requests_change, requests_dir = self.calculate_change(
             today_summary.total_requests, y_requests
+        )
+
+        logger.debug(
+            f"Dashboard summary for facility {facility_id}: "
+            f"stock={today_summary.total_stock} (was {y_stock}), "
+            f"transferred={today_summary.total_transferred} (was {y_transferred}), "
+            f"requests={today_summary.total_requests} (was {y_requests})"
         )
 
         return {
@@ -458,11 +522,17 @@ class StatsService(BaseChartService):
 
         if db_product_names:
             conditions.append(BloodDistribution.blood_product.in_(db_product_names))
-            logger.debug(f"Filtering by products: {db_product_names}")
+            logger.info(
+                f"Distribution query - Filtering by products: {db_product_names}"
+            )
+        else:
+            logger.info(
+                "Distribution query - No product filter (will return all products)"
+            )
 
         if blood_types:
             conditions.append(BloodDistribution.blood_type.in_(blood_types))
-            logger.debug(f"Filtering by blood types: {blood_types}")
+            logger.info(f"Distribution query - Filtering by blood types: {blood_types}")
 
         return conditions
 
@@ -485,7 +555,14 @@ class StatsService(BaseChartService):
         )
 
         result = await self.db.execute(query)
-        return result.fetchall()
+        rows = result.fetchall()
+
+        logger.info(f"Distribution query returned {len(rows)} rows")
+        if rows:
+            products_found = set(row.blood_product for row in rows)
+            logger.info(f"Products found in results: {products_found}")
+
+        return rows
 
     def _get_chart_data_builder_config(self) -> Dict[str, List[str]]:
         """Get configuration for the chart data builder."""
@@ -555,11 +632,13 @@ class RequestTrackingService(BaseChartService):
 
         if db_product_names:
             conditions.append(BloodRequest.blood_product.in_(db_product_names))
-            logger.debug(f"Filtering by products: {db_product_names}")
+            logger.info(f"Request query - Filtering by products: {db_product_names}")
+        else:
+            logger.info("Request query - No product filter (will return all products)")
 
         if blood_types:
             conditions.append(BloodRequest.blood_type.in_(blood_types))
-            logger.debug(f"Filtering by blood types: {blood_types}")
+            logger.info(f"Request query - Filtering by blood types: {blood_types}")
 
         return conditions
 
@@ -582,7 +661,14 @@ class RequestTrackingService(BaseChartService):
         )
 
         result = await self.db.execute(query)
-        return result.fetchall()
+        rows = result.fetchall()
+
+        logger.info(f"Request query returned {len(rows)} rows")
+        if rows:
+            products_found = set(row.blood_product for row in rows)
+            logger.info(f"Products found in results: {products_found}")
+
+        return rows
 
     def _get_chart_data_builder_config(self) -> Dict[str, List[str]]:
         """Get configuration for the chart data builder."""

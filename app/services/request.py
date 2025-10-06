@@ -537,6 +537,23 @@ class BloodRequestService:
             # Convert to dictionaries to prevent any ORM access during serialization
             request_response_dicts = [resp.model_dump() for resp in request_responses]
 
+            # Refresh dashboard metrics immediately for the requester's facility
+            try:
+                from app.services.dashboard_service import (
+                    refresh_facility_dashboard_metrics,
+                )
+
+                # Use the facility_id from the first created request (all are from same facility)
+                if created_requests:
+                    await refresh_facility_dashboard_metrics(
+                        self.db, created_requests[0].facility_id
+                    )
+            except Exception as dashboard_error:
+                # Don't fail the request if dashboard refresh fails
+                logger.warning(
+                    f"Failed to refresh dashboard metrics: {dashboard_error}"
+                )
+
             # Create response with pure dict data
             return BloodRequestBulkCreateResponse(
                 request_group_id=request_group_id,

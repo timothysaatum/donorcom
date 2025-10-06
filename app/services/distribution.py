@@ -17,8 +17,11 @@ from app.schemas.distribution import (
 from app.models.tracking_model import TrackState
 from app.schemas.tracking_schema import TrackStateStatus
 from app.schemas.request import ProcessingStatus
-from app.utils.generators import calculate_expiry_date, generate_batch_number, generate_tracking_number
-
+from app.utils.generators import (
+    calculate_expiry_date,
+    generate_batch_number,
+    generate_tracking_number,
+)
 
 
 class BloodDistributionService:
@@ -122,6 +125,33 @@ class BloodDistributionService:
 
         await self.db.commit()
 
+        # Refresh dashboard metrics immediately for both facilities
+        try:
+            from app.services.dashboard_service import (
+                refresh_facility_dashboard_metrics,
+            )
+
+            # Refresh for the facility that dispatched (their stock decreased)
+            if (
+                new_distribution.dispatched_from
+                and new_distribution.dispatched_from.facility_id
+            ):
+                await refresh_facility_dashboard_metrics(
+                    self.db, new_distribution.dispatched_from.facility_id
+                )
+            # Refresh for the facility that received (their transferred count increased)
+            if new_distribution.dispatched_to_id:
+                await refresh_facility_dashboard_metrics(
+                    self.db, new_distribution.dispatched_to_id
+                )
+        except Exception as dashboard_error:
+            # Don't fail the operation if dashboard refresh fails
+            import logging
+
+            logging.getLogger(__name__).warning(
+                f"Failed to refresh dashboard metrics: {dashboard_error}"
+            )
+
         return new_distribution
 
     async def get_distribution(
@@ -215,7 +245,7 @@ class BloodDistributionService:
                         quantity=distribution.quantity,
                         blood_bank_id=distribution.dispatched_from_id,
                         added_by_id=distribution.created_by_id,
-                        expiry_date=distribution.expiry_date
+                        expiry_date=distribution.expiry_date,
                     )
                     self.db.add(new_inventory)
 
