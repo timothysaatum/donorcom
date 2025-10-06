@@ -1134,13 +1134,39 @@ class BloodRequestService:
     ) -> BloodRequest:
         """Cancel a blood request - only allowed for pending requests"""
 
-        # Get the request with all necessary relationships
-        request = await self.get_request(request_id)
+        # Get the request with all necessary relationships using a fresh query
+        # This ensures we have the latest state from the database
+        result = await self.db.execute(
+            select(BloodRequest)
+            .options(
+                selectinload(BloodRequest.requester).selectinload(User.facility),
+                selectinload(BloodRequest.requester).selectinload(User.work_facility),
+                selectinload(BloodRequest.target_facility),
+                selectinload(BloodRequest.source_facility),
+                selectinload(BloodRequest.distributions),
+            )
+            .where(BloodRequest.id == request_id)
+            .execution_options(populate_existing=True)  # Force refresh from DB
+        )
+        request = result.scalar_one_or_none()
+
         if not request:
+            logger.warning(f"Cancel attempt failed: Request {request_id} not found")
             raise HTTPException(status_code=404, detail="Blood request not found")
+
+        logger.info(
+            f"Cancel request check - ID: {request_id}, "
+            f"Current status: {request.request_status.value}, "
+            f"Requester: {request.requester_id}, "
+            f"Cancelling user: {user_id}"
+        )
 
         # Check if request can be cancelled (only pending requests)
         if request.request_status != RequestStatus.PENDING:
+            logger.warning(
+                f"Cancel attempt failed: Request {request_id} has status "
+                f"'{request.request_status.value}', not 'pending'"
+            )
             raise HTTPException(
                 status_code=400,
                 detail=f"Cannot cancel request with status '{request.request_status.value}'. Only pending requests can be cancelled.",
@@ -1148,6 +1174,10 @@ class BloodRequestService:
 
         # Verify ownership if user_id is provided
         if user_id and request.requester_id != user_id:
+            logger.warning(
+                f"Cancel attempt failed: User {user_id} is not the requester "
+                f"(actual: {request.requester_id}) for request {request_id}"
+            )
             raise HTTPException(
                 status_code=403, detail="Not authorized to cancel this request"
             )
@@ -1155,6 +1185,18 @@ class BloodRequestService:
         old_status = request.request_status
 
         try:
+            # Collect data BEFORE any operations (while relationships are loaded)
+            request_id_val = request.id
+            requester_id_val = request.requester_id
+            blood_product_val = request.blood_product
+            blood_type_val = request.blood_type
+            quantity_val = request.quantity_requested
+            facility_name = (
+                request.target_facility.facility_name
+                if request.target_facility
+                else "Unknown Location"
+            )
+
             # Update request status
             request.request_status = RequestStatus.CANCELLED
             request.cancellation_reason = (
@@ -1163,29 +1205,24 @@ class BloodRequestService:
 
             # Commit the cancellation
             await self.db.commit()
-            await self.db.refresh(request)
 
-            # Create track state for cancellation
+            # Create track state for cancellation (using collected data)
             track_state = TrackState(
-                blood_request_id=request.id,
+                blood_request_id=request_id_val,
                 status=TrackStateStatus.CANCELLED,
-                location=(
-                    request.target_facility.facility_name
-                    if request.target_facility
-                    else "Unknown Location"
-                ),
+                location=facility_name,
                 notes=f"Request cancelled by requester. Reason: {request.cancellation_reason}",
-                created_by_id=request.requester_id,
+                created_by_id=requester_id_val,
             )
             self.db.add(track_state)
             await self.db.commit()
 
-            # Send notification using the utility function
+            # Send notification using the utility function (using collected data)
             await notify(
                 self.db,
-                request.requester_id,
+                requester_id_val,
                 "Request Cancelled",
-                f"Your blood request for {request.blood_product} ({request.blood_type}) - {request.quantity_requested} units has been cancelled. Reason: {request.cancellation_reason}",
+                f"Your blood request for {blood_product_val} ({blood_type_val}) - {quantity_val} units has been cancelled. Reason: {request.cancellation_reason}",
             )
 
             logger.info(
@@ -1193,7 +1230,22 @@ class BloodRequestService:
                 f"Reason: {request.cancellation_reason}"
             )
 
-            return request
+            # Reload request with all relationships for response
+            result = await self.db.execute(
+                select(BloodRequest)
+                .options(
+                    selectinload(BloodRequest.requester).selectinload(User.facility),
+                    selectinload(BloodRequest.requester).selectinload(
+                        User.work_facility
+                    ),
+                    selectinload(BloodRequest.target_facility),
+                    selectinload(BloodRequest.source_facility),
+                    selectinload(BloodRequest.distributions),
+                )
+                .where(BloodRequest.id == request_id)
+            )
+            refreshed_request = result.scalar_one()
+            return refreshed_request
 
         except Exception as e:
             await self.db.rollback()

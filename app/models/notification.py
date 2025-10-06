@@ -18,7 +18,9 @@ class Notification(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     message: Mapped[str] = mapped_column(String(500), nullable=False)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
 
     # --- Relationships ---
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -39,4 +41,3 @@ class Notification(Base):
     def mark_as_unread(self):
         self.is_read = False
         self.updated_at = datetime.now(timezone.utc)
-        

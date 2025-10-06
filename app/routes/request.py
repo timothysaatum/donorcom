@@ -148,8 +148,10 @@ async def create_blood_request(
             ip_address=client_ip,
         )
 
-        raise HTTPException(status_code=500, detail=f"Blood request creation failed{str(e)}")
-    
+        raise HTTPException(
+            status_code=500, detail=f"Blood request creation failed{str(e)}"
+        )
+
 
 @router.get("/my-requests", response_model=List[BloodRequestResponse])
 async def list_my_requests(
@@ -1274,7 +1276,9 @@ async def respond_to_request(
             ip_address=client_ip,
         )
 
-        raise HTTPException(status_code=500, detail=f"Failed to respond to request{str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to respond to request{str(e)}"
+        )
 
 
 @router.patch("/{request_id}/cancel", response_model=BloodRequestResponse)
@@ -1310,7 +1314,7 @@ async def cancel_blood_request(
     try:
         service = BloodRequestService(db)
 
-        # Get the request first to verify ownership and status
+        # Get the request first for audit logging (before cancellation)
         blood_request = await service.get_request(request_id)
         if not blood_request:
             logger.warning(
@@ -1324,51 +1328,7 @@ async def cancel_blood_request(
             )
             raise HTTPException(status_code=404, detail="Request not found")
 
-        # Verify ownership
-        if blood_request.requester_id != current_user.id:
-            log_security_event(
-                event_type="unauthorized_blood_request_cancellation",
-                details={
-                    "reason": "not_owner",
-                    "request_id": req_id,
-                    "actual_owner": str(blood_request.requester_id),
-                },
-                user_id=current_user_id,
-                ip_address=client_ip,
-            )
-
-            logger.warning(
-                "Blood request cancellation denied - not authorized",
-                extra={
-                    "event_type": "blood_request_cancellation_denied",
-                    "current_user_id": current_user_id,
-                    "request_id": req_id,
-                    "reason": "not_owner",
-                },
-            )
-
-            raise HTTPException(
-                status_code=403, detail="Not authorized to cancel this request"
-            )
-
-        # Check if request is in a cancellable state
-        if blood_request.request_status != RequestStatus.PENDING:
-            logger.warning(
-                "Blood request cancellation failed - invalid status",
-                extra={
-                    "event_type": "blood_request_cancellation_failed",
-                    "current_user_id": current_user_id,
-                    "request_id": req_id,
-                    "current_status": blood_request.request_status.value,
-                    "reason": "invalid_status",
-                },
-            )
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot cancel request with status '{blood_request.request_status.value}'. Only pending requests can be cancelled.",
-            )
-
-        # Store old values for audit
+        # Store old values for audit (access attributes before cancellation)
         old_values = {
             "request_status": blood_request.request_status.value,
             "cancellation_reason": blood_request.cancellation_reason,
@@ -1377,7 +1337,7 @@ async def cancel_blood_request(
             "priority": blood_request.priority,
         }
 
-        # Cancel the request
+        # Cancel the request (service will verify ownership and status with fresh query)
         cancelled_request = await service.cancel_request(
             request_id=request_id,
             cancellation_reason=cancellation_reason,
@@ -1474,7 +1434,9 @@ async def cancel_blood_request(
             ip_address=client_ip,
         )
 
-        raise HTTPException(status_code=500, detail="Blood request cancellation failed")
+        raise HTTPException(
+            status_code=500, detail=f"====================Blood request cancellation failed: {str(e)}"
+        )
 
 
 # =============================================================================
