@@ -3,9 +3,9 @@ from typing import List
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from app.models.request import BloodRequest
-from app.models.user import User
-from app.models.health_facility import Facility
+from app.models.request_model import BloodRequest
+from app.models.user_model import User
+from app.models.health_facility_model import Facility
 from app.services.notification_sse import manager
 import logging
 
@@ -131,7 +131,7 @@ class NotificationService:
 
         except Exception as e:
             logger.error(f"Error sending notification to user {user_id}: {e}")
-                                                                                                                                                                                                                                                                                                                                                             
+
     async def broadcast_system_message(
         self, message: str, message_type: str = "system"
     ) -> int:

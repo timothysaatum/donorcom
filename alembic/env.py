@@ -15,13 +15,13 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 # Import metadata from your Base
 from app.db.base import Base  # Your declarative Base
 from app.models import (
-    user,
-    health_facility,
-    blood_bank,
-    inventory,
-    distribution,
+    blood_bank_model,
+    device_model,
+    distribution_model,
+    health_facility_model,
+    inventory_model,
     TrackState,
-    device,  # Import device models for security features
+    user_model,  # Import device models for security features
 )  # Ensure all models are imported here
 
 # Alembic Config

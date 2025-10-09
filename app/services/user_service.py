@@ -4,9 +4,9 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy import and_, func, desc, or_
 from fastapi import HTTPException, BackgroundTasks
-from app.models.user import User
-from app.models.rbac import Role
-from app.schemas.user import UserCreate, UserUpdate
+from app.models.user_model import User
+from app.models.rbac_model import Role
+from app.schemas.user_schema import UserCreate, UserUpdate
 from app.utils.security import (
     get_password_hash,
     create_verification_token,

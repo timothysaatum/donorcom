@@ -2,7 +2,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from uuid import UUID
-from app.models.notification import Notification
+from app.models.notification_model import Notification
 from app.services.notification_sse import ConnectionManager
 
 logger = logging.getLogger(__name__)

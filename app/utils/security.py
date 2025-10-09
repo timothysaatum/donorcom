@@ -4,21 +4,22 @@ from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, HashingError, VerificationError
 from datetime import datetime, timedelta, timezone
 from jose import JWTError, jwt
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union, Dict
 import os
 import hashlib
-from app.models.rbac import Role
+import json
+from app.models.rbac_model import Role
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_db
-from app.models.user import User, RefreshToken, UserSession
+from app.models.user_model import User, RefreshToken, UserSession
 from sqlalchemy.future import select
 from uuid import UUID
 from sqlalchemy.orm import selectinload, joinedload
 from sqlalchemy.exc import SQLAlchemyError
-from app.models.health_facility import Facility
+from app.models.health_facility_model import Facility
 from uuid import uuid4
 from app.utils.logging_config import get_logger, log_security_event
 
@@ -529,21 +530,27 @@ class TokenManager:
         db: AsyncSession,
         user_id: uuid.UUID,
         token: str,
-        device_info: str,
+        device_info: Union[str, Dict],
         ip_address: str,
     ):
         """Create refresh token record with absolute expiration"""
-        from app.models.user import RefreshToken
+        from app.models.user_model import RefreshToken
 
         current_time = datetime.now(timezone.utc)
         absolute_expiry = current_time + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
         regular_expiry = current_time + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
         token_hash = hashlib.sha256(token.encode()).hexdigest()
 
+        # Serialize device_info if it's a dict
+        if isinstance(device_info, dict):
+            device_info_str = json.dumps(device_info)
+        else:
+            device_info_str = device_info if device_info else ""
+
         refresh_token_record = RefreshToken(
             user_id=user_id,
             token_hash=token_hash,
-            device_info=device_info,
+            device_info=device_info_str,
             ip_address=ip_address,
             expires_at=regular_expiry,
             absolute_expires_at=absolute_expiry,
@@ -561,7 +568,7 @@ class TokenManager:
     @staticmethod
     async def validate_refresh_token(db: AsyncSession, token: str):
         """Validate refresh token with absolute expiration check"""
-        from app.models.user import RefreshToken
+        from app.models.user_model import RefreshToken
         from sqlalchemy.orm import selectinload
 
         token_hash = hashlib.sha256(token.encode()).hexdigest()
@@ -577,7 +584,7 @@ class TokenManager:
     @staticmethod
     async def revoke_refresh_token(db: AsyncSession, token_id: uuid.UUID):
         """Revoke a refresh token by ID"""
-        from app.models.user import RefreshToken
+        from app.models.user_model import RefreshToken
 
         result = await db.execute(
             select(RefreshToken).where(RefreshToken.id == token_id)
@@ -716,83 +723,6 @@ async def handle_successful_login(
         await db.rollback()
 
 
-# async def authenticate_user(
-#     db: AsyncSession,
-#     email: str,
-#     password: str,
-#     ip_address: str = None,
-#     user_agent: str = None,
-# ) -> Tuple[bool, Optional[User], Optional[str]]:
-#     """
-#     Authenticate user with enhanced security features
-#     Returns: (success, user, error_message)
-#     """
-
-#     try:
-#         result = await db.execute(
-#             select(User)
-#             .options(
-#                 selectinload(User.roles).selectinload(Role.permissions),
-#                 selectinload(User.facility).selectinload(Facility.blood_bank),
-#                 selectinload(User.work_facility).selectinload(Facility.blood_bank),
-#             )
-#             .where(User.email == email)
-#         )
-
-#         user = result.scalar_one_or_none()
-#         if not user:
-#             log_security_event(
-#                 event_type="authentication_failed",
-#                 ip_address=ip_address,
-#                 user_agent=user_agent,
-#                 details={"reason": "user_not_found", "email": email},
-#             )
-#             return False, None, "Invalid email or password"
-
-#         can_login, login_error = user.can_login()
-#         if not can_login:
-#             await handle_failed_login(db, user, ip_address, user_agent)
-#             return False, user, login_error
-
-#         if not user.is_verified:
-#             return False, user, "Email not verified"
-
-#         if not verify_password(password, user.password):
-#             await handle_failed_login(db, user, ip_address, user_agent)
-#             return False, user, "Invalid email or password"
-
-#         if needs_rehash(user.password):
-#             try:
-#                 user.password = get_password_hash(password)
-#                 logger.info(
-#                     "Password rehashed with updated parameters",
-#                     extra={"event_type": "password_rehashed", "user_id": str(user.id)},
-#                 )
-#             except Exception as e:
-#                 logger.warning(
-#                     "Failed to rehash password",
-#                     extra={
-#                         "event_type": "password_rehash_failed",
-#                         "user_id": str(user.id),
-#                         "error": str(e),
-#                     },
-#                 )
-
-#         await handle_successful_login(db, user, ip_address, user_agent)
-#         return True, user, None
-
-
-#     except Exception as e:
-#         logger.error(
-#             "Authentication error",
-#             extra={
-#                 "event_type": "authentication_error",
-#                 "email": email,
-#                 "error": str(e),
-#             },
-#             exc_info=True,
-#         )
-#         return False, None, "Authentication failed"
 async def authenticate_user(
     db: AsyncSession,
     email: str,

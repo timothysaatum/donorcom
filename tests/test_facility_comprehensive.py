@@ -14,8 +14,8 @@ from tests.conftest import (
     assert_validation_error,
     PerformanceTimer,
 )
-from app.models.health_facility import Facility
-from app.models.user import User
+from app.models.health_facility_model import Facility
+from app.models.user_model import User
 
 
 class TestFacilityCreation:

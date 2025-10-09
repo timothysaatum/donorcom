@@ -2,8 +2,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from fastapi import HTTPException
 from uuid import UUID
-from app.models.health_facility import Facility
-from app.models.blood_bank import BloodBank
+from app.models.health_facility_model import Facility
+from app.models.blood_bank_model import BloodBank
 from typing import Optional, Union
 from app.schemas.facility_schema import (
     FacilityBase,

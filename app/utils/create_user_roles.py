@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.exc import IntegrityError
-from app.models.rbac import Role, Permission
+from app.models.rbac_model import Role, Permission
 import logging
 
 # Set up logging

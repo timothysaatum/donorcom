@@ -1,8 +1,8 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from app.models.user import User
-from app.models.rbac import Role
+from app.models.user_model import User
+from app.models.rbac_model import Role
 from uuid import UUID
 
 

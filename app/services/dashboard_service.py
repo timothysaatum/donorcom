@@ -7,9 +7,9 @@ from sqlalchemy import select, func, cast, Date
 from datetime import date
 from uuid import UUID
 from typing import Dict, Any
-from app.models.inventory import BloodInventory
-from app.models.distribution import BloodDistribution
-from app.models.request import BloodRequest, DashboardDailySummary
+from app.models.inventory_model import BloodInventory
+from app.models.distribution_model import BloodDistribution
+from app.models.request_model import BloodRequest, DashboardDailySummary
 from app.utils.logging_config import get_logger
 
 logger = get_logger(__name__)

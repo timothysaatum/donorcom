@@ -165,11 +165,11 @@ sync_engine = create_engine(
 SyncSessionLocal = sessionmaker(bind=sync_engine)
 
 # Import models so Alembic detects them
-from app.models.user import User  # noqa
-from app.models.health_facility import Facility  # noqa
-from app.models.blood_bank import BloodBank  # noqa
-from app.models.inventory import BloodInventory  # noqa
-from app.models.distribution import BloodDistribution  # noqa
+from app.models.user_model import User  # noqa
+from app.models.health_facility_model import Facility  # noqa
+from app.models.blood_bank_model import BloodBank  # noqa
+from app.models.inventory_model import BloodInventory  # noqa
+from app.models.distribution_model import BloodDistribution  # noqa
 
 
 async def init_db():

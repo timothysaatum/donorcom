@@ -15,7 +15,7 @@ from tests.conftest import (
     assert_validation_error,
     PerformanceTimer,
 )
-from app.models.health_facility import Facility
+from app.models.health_facility_model import Facility
 
 
 class TestBloodInventoryCreation:

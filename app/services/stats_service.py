@@ -6,8 +6,8 @@ from abc import ABC, abstractmethod
 import uuid
 from sqlalchemy.exc import SQLAlchemyError
 from app.utils.logging_config import get_logger
-from app.models.request import BloodRequest, DashboardDailySummary
-from app.models.distribution import BloodDistribution
+from app.models.request_model import BloodRequest, DashboardDailySummary
+from app.models.distribution_model import BloodDistribution
 from app.schemas.base_schema import BloodProduct
 
 logger = get_logger(__name__)

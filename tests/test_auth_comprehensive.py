@@ -14,7 +14,7 @@ from tests.conftest import (
     assert_validation_error,
     PerformanceTimer,
 )
-from app.models.user import User
+from app.models.user_model import User
 
 
 class TestUserRegistration:

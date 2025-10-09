@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from app.models.tracking_model import TrackState
-from app.models.distribution import BloodDistribution
+from app.models.distribution_model import BloodDistribution
 
 
 class TrackStateService:

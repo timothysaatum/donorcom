@@ -1,7 +1,7 @@
 from uuid import UUID
-from app.models.blood_bank import BloodBank
-from app.models.health_facility import Facility
-from app.models.user import User
+from app.models.blood_bank_model import BloodBank
+from app.models.health_facility_model import Facility
+from app.models.user_model import User
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import or_
 from fastapi import HTTPException, status

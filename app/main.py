@@ -225,7 +225,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
-from app.models.rbac import Role, Permission
+from app.models.rbac_model import Role, Permission
 from app.middlewares.logging_middleware import LoggingMiddleware
 
 # Configure logging
@@ -491,7 +491,7 @@ def create_application() -> FastAPI:
     async def test_db_query(db: AsyncSession = Depends(get_db)):
         """Test a simple database query"""
         try:
-            from app.models.user import User
+            from app.models.user_model import User
 
             result = await db.execute(text("SELECT COUNT(*) FROM users"))
             count = result.scalar()
@@ -563,7 +563,7 @@ def create_application() -> FastAPI:
         try:
             # Step 1: Test basic query
             print("Step 1: Testing basic user query...")
-            from app.models.user import User
+            from app.models.user_model import User
 
             result = await db.execute(select(User).limit(1))
             user = result.scalar_one_or_none()
@@ -576,8 +576,8 @@ def create_application() -> FastAPI:
             # Step 2: Test with relationships
             print("Step 2: Testing query with relationships...")
             from sqlalchemy.orm import joinedload
-            from app.models.health_facility import Facility
-            from app.models.rbac import Role
+            from app.models.health_facility_model import Facility
+            from app.models.rbac_model import Role
 
             result = await db.execute(
                 select(User)
@@ -591,7 +591,7 @@ def create_application() -> FastAPI:
             # Step 3: Test session creation
             print("Step 3: Testing session creation...")
             from app.utils.security import SessionManager
-            from app.models.user import UserSession
+            from app.models.user_model import UserSession
             import uuid
             from datetime import datetime, timedelta
 

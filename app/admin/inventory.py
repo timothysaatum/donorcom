@@ -1,5 +1,5 @@
 from sqladmin import ModelView
-from app.models.inventory import BloodInventory
+from app.models.inventory_model import BloodInventory
 from sqlalchemy import func
 
 

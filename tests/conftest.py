@@ -33,9 +33,9 @@ os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
 
 from app.main import app
 from app.db.base import Base
-from app.models.user import User
-from app.models.health_facility import Facility
-from app.models.request import BloodRequest
+from app.models.user_model import User
+from app.models.health_facility_model import Facility
+from app.models.request_model import BloodRequest
 from app.services.user_service import UserService
 from app.dependencies import get_db
 

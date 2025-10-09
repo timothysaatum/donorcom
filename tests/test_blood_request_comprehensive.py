@@ -15,10 +15,10 @@ from tests.conftest import (
     assert_validation_error,
     PerformanceTimer,
 )
-from app.models.request import BloodRequest
-from app.models.user import User
-from app.models.health_facility import Facility
-from app.models.patient import Patient
+from app.models.request_model import BloodRequest
+from app.models.user_model import User
+from app.models.health_facility_model import Facility
+from app.models.patient_model import Patient
 
 
 class TestBloodRequestCreation:

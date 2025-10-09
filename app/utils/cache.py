@@ -17,7 +17,7 @@ import json
 from collections import defaultdict, OrderedDict
 from dataclasses import dataclass, asdict
 
-from app.models.user import User, UserSession
+from app.models.user_model import User, UserSession
 from app.utils.logging_config import get_logger
 
 logger = get_logger(__name__)

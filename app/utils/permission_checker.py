@@ -1,6 +1,6 @@
 import uuid
 from fastapi import Depends, HTTPException, status, Request
-from app.models.user import User
+from app.models.user_model import User
 from app.utils.security import (
     get_current_user,
     SessionManager,

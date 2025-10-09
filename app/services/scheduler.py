@@ -1,12 +1,12 @@
-from app.models.health_facility import Facility
+from app.models.health_facility_model import Facility
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.executors.asyncio import AsyncIOExecutor
 from sqlalchemy import select, func, cast, Date
 from datetime import date
 from app.database import async_session as async_sessionmaker
-from app.models.inventory import BloodInventory
-from app.models.distribution import BloodDistribution
-from app.models.request import BloodRequest, DashboardDailySummary
+from app.models.inventory_model import BloodInventory
+from app.models.distribution_model import BloodDistribution
+from app.models.request_model import BloodRequest, DashboardDailySummary
 
 # Global scheduler instance
 scheduler = None

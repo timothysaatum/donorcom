@@ -1,6 +1,6 @@
 import pytest
 from pydantic import ValidationError
-from app.schemas.user import UserCreate, UserUpdate, UserRole
+from app.schemas.user_schema import UserCreate, UserUpdate, UserRole
 
 
 def test_user_create_valid():

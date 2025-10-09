@@ -6,7 +6,7 @@ from app.schemas.tracking_schema import (
     TrackStateDetailResponse,
 )
 from app.services.tracking_service import TrackStateService
-from app.models.user import User
+from app.models.user_model import User
 from app.dependencies import get_db
 from app.utils.permission_checker import require_permission, require_role
 from app.utils.logging_config import (

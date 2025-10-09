@@ -1,8 +1,8 @@
-"""create tables
+"""update tables
 
-Revision ID: 166fc3b60e19
+Revision ID: 5fe551a339a4
 Revises: 
-Create Date: 2025-10-04 02:55:56.399907
+Create Date: 2025-10-06 10:49:46.714096
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = '166fc3b60e19'
+revision: str = '5fe551a339a4'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -29,8 +29,8 @@ def upgrade() -> None:
     sa.Column('facility_contact_number', sa.String(length=20), nullable=True),
     sa.Column('latitude', sa.Float(), nullable=True),
     sa.Column('longitude', sa.Float(), nullable=True),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('facility_manager_id', sa.UUID(), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
@@ -45,8 +45,8 @@ def upgrade() -> None:
     sa.Column('age', sa.Integer(), nullable=False),
     sa.Column('sex', sa.String(length=10), nullable=False),
     sa.Column('diagnosis', sa.String(length=255), nullable=True),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=True),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=True),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
     sa.PrimaryKeyConstraint('id')
     )
     with op.batch_alter_table('patients', schema=None) as batch_op:
@@ -83,7 +83,7 @@ def upgrade() -> None:
     sa.Column('total_requests', sa.Integer(), nullable=False),
     sa.Column('total_transferred', sa.Integer(), nullable=False),
     sa.Column('total_stock', sa.Integer(), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('facility_id', sa.UUID(), nullable=False),
     sa.ForeignKeyConstraint(['facility_id'], ['facilities.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('date', 'facility_id')
@@ -111,8 +111,8 @@ def upgrade() -> None:
     sa.Column('verification_token', sa.String(), nullable=True),
     sa.Column('failed_login_attempts', sa.Integer(), nullable=False),
     sa.Column('locked_until', postgresql.TIMESTAMP(timezone=True), nullable=True),
-    sa.Column('created_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('last_login', postgresql.TIMESTAMP(timezone=True), nullable=True),
     sa.ForeignKeyConstraint(['work_facility_id'], ['facilities.id'], ondelete='SET NULL'),
     sa.PrimaryKeyConstraint('id')
@@ -139,8 +139,8 @@ def upgrade() -> None:
     sa.Column('blood_bank_name', sa.String(length=100), nullable=False),
     sa.Column('phone', sa.String(length=15), nullable=False),
     sa.Column('email', sa.String(length=100), nullable=False),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('facility_id', sa.UUID(), nullable=False),
     sa.Column('manager_id', sa.UUID(), nullable=True),
     sa.ForeignKeyConstraint(['facility_id'], ['facilities.id'], ondelete='CASCADE'),
@@ -165,8 +165,8 @@ def upgrade() -> None:
     sa.Column('notes', sa.Text(), nullable=True),
     sa.Column('cancellation_reason', sa.String(length=200), nullable=True),
     sa.Column('option', sa.String(length=10), nullable=False),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('requester_id', sa.UUID(), nullable=False),
     sa.Column('fulfilled_by_id', sa.UUID(), nullable=True),
     sa.Column('facility_id', sa.UUID(), nullable=False, comment='Target/receiving facility for the request'),
@@ -237,9 +237,9 @@ def upgrade() -> None:
     sa.Column('verification_method', sa.String(length=50), nullable=True),
     sa.Column('verification_token', sa.String(length=255), nullable=True),
     sa.Column('verification_expires_at', postgresql.TIMESTAMP(timezone=True), nullable=True),
-    sa.Column('first_seen', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('last_seen', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('last_trust_update', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('first_seen', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('last_seen', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('last_trust_update', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('verified_at', postgresql.TIMESTAMP(timezone=True), nullable=True),
     sa.Column('registered_at', postgresql.TIMESTAMP(timezone=True), nullable=True),
     sa.Column('is_active', sa.Boolean(), nullable=False),
@@ -285,7 +285,7 @@ def upgrade() -> None:
     sa.Column('title', sa.String(length=255), nullable=False),
     sa.Column('message', sa.String(length=500), nullable=False),
     sa.Column('is_read', sa.Boolean(), nullable=False),
-    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
     sa.Column('user_id', sa.UUID(), nullable=False),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
@@ -296,11 +296,11 @@ def upgrade() -> None:
     sa.Column('token_hash', sa.String(length=255), nullable=False),
     sa.Column('expires_at', postgresql.TIMESTAMP(timezone=True), nullable=False),
     sa.Column('revoked', sa.Boolean(), nullable=False),
-    sa.Column('created_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('absolute_expires_at', postgresql.TIMESTAMP(timezone=True), nullable=False),
     sa.Column('usage_count', sa.Integer(), nullable=False),
-    sa.Column('last_used_at', sa.DateTime(), nullable=False),
+    sa.Column('last_used_at', postgresql.TIMESTAMP(timezone=True), nullable=False),
     sa.Column('device_info', sa.String(length=500), nullable=True),
     sa.Column('ip_address', sa.String(length=45), nullable=True),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
@@ -343,8 +343,8 @@ def upgrade() -> None:
     sa.Column('isp', sa.String(length=200), nullable=True),
     sa.Column('is_active', sa.Boolean(), nullable=False),
     sa.Column('is_suspicious', sa.Boolean(), nullable=False),
-    sa.Column('created_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
-    sa.Column('last_activity', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('last_activity', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('expires_at', postgresql.TIMESTAMP(timezone=True), nullable=False),
     sa.Column('terminated_at', postgresql.TIMESTAMP(timezone=True), nullable=True),
     sa.Column('login_method', sa.String(length=50), nullable=True),
@@ -378,8 +378,8 @@ def upgrade() -> None:
     sa.Column('blood_type', sa.String(length=10), nullable=False),
     sa.Column('quantity', sa.Integer(), nullable=False),
     sa.Column('expiry_date', sa.Date(), nullable=False),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('blood_bank_id', sa.UUID(), nullable=False),
     sa.Column('added_by_id', sa.UUID(), nullable=True),
     sa.ForeignKeyConstraint(['added_by_id'], ['users.id'], ondelete='SET NULL'),
@@ -421,7 +421,7 @@ def upgrade() -> None:
     sa.Column('registration_ip', sa.String(length=45), nullable=True),
     sa.Column('registration_country', sa.String(length=3), nullable=True),
     sa.Column('registration_city', sa.String(length=100), nullable=True),
-    sa.Column('initiated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('initiated_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('expires_at', postgresql.TIMESTAMP(timezone=True), nullable=False),
     sa.Column('completed_at', postgresql.TIMESTAMP(timezone=True), nullable=True),
     sa.Column('last_attempt_at', postgresql.TIMESTAMP(timezone=True), nullable=True),
@@ -452,7 +452,7 @@ def upgrade() -> None:
     sa.Column('user_agent', sa.Text(), nullable=True),
     sa.Column('country', sa.String(length=3), nullable=True),
     sa.Column('city', sa.String(length=100), nullable=True),
-    sa.Column('occurred_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
+    sa.Column('occurred_at', postgresql.TIMESTAMP(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('resolved_at', postgresql.TIMESTAMP(timezone=True), nullable=True),
     sa.Column('is_resolved', sa.Boolean(), nullable=False),
     sa.Column('resolution_action', sa.String(length=255), nullable=True),
@@ -488,8 +488,8 @@ def upgrade() -> None:
     sa.Column('batch_number', sa.String(length=50), nullable=True, comment='Batch number for inventory tracking and traceability'),
     sa.Column('expiry_date', sa.Date(), nullable=True, comment='Expiry date of the blood product'),
     sa.Column('temperature_maintained', sa.Boolean(), nullable=True, comment='Whether proper temperature was maintained during transport'),
-    sa.Column('created_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()'), nullable=False),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('blood_product_id', sa.UUID(), nullable=True),
     sa.Column('request_id', sa.UUID(), nullable=True, comment='Link to the original blood request that triggered this distribution'),
     sa.Column('dispatched_from_id', sa.UUID(), nullable=False),

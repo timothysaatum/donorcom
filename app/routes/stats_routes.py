@@ -2,16 +2,13 @@ import asyncio
 import time
 from typing import List, Optional
 from datetime import datetime, timedelta
-
 # FastAPI and database imports
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
-
 # Utility imports for caching and security
 from app.schemas.base_schema import BloodProduct, BloodType
 from app.utils.cache_manager import cache_key, manual_cache_get, manual_cache_set
 from app.utils.permission_checker import require_permission
-
 # Application-specific imports
 from app.dependencies import get_db
 from app.schemas.stats_schema import (
@@ -23,7 +20,7 @@ from app.schemas.stats_schema import (
     RequestDirection,
 )
 from app.services.stats_service import StatsService, RequestTrackingService
-from app.models.user import User
+from app.models.user_model import User
 from app.utils.logging_config import get_logger, log_performance_metric, LogContext
 from app.utils.generic_id import get_user_facility_id, get_user_blood_bank_id
 
@@ -250,8 +247,6 @@ async def dashboard_summary(
 # =============================================================================
 # DISTRIBUTION CHART ENDPOINT - SIMPLIFIED
 # =============================================================================
-
-
 @router.get("/distribution-chart", response_model=DistributionChartResponse)
 async def distribution_chart(
     from_date: Optional[str] = Query(None, description="Start date in ISO format"),
@@ -271,8 +266,9 @@ async def distribution_chart(
     request: Request = None,
 ):
     """Get blood distribution chart data for dashboard visualization."""
-    start_time = time.time()
+    print("==============================================", from_date, to_date)
 
+    start_time = time.time()
     with LogContext(
         req_id=getattr(request.state, "request_id", None) if request else None,
         usr_id=str(current_user.id),
@@ -446,6 +442,7 @@ async def get_request_chart_get(
 ) -> RequestChartResponse:
     """Get blood request chart data with caching and timeout protection."""
     start_time = time.time()
+    print("==============================================", from_date, to_date)
 
     with LogContext(
         req_id=getattr(request.state, "request_id", None) if request else None,

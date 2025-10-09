@@ -6,7 +6,7 @@ from pydantic import (
     ConfigDict,
     StringConstraints,
 )
-from app.schemas.blood_bank import BloodBankInFacilityResponse, BloodBankBase
+from app.schemas.blood_bank_schema import BloodBankInFacilityResponse, BloodBankBase
 from typing import Optional, Annotated
 from datetime import datetime
 from uuid import UUID
@@ -50,30 +50,9 @@ class FacilityBase(BaseSchema):
         ),
     ] = Field(..., description="GPS digital address (e.g., GA-123-4567)")
 
-    @field_validator("facility_digital_address")
-    @classmethod
-    def validate_gps_pattern(cls, v: str) -> str:
-        # Pattern already enforced by StringConstraints, this is additional validation
-        if not v.startswith(
-            (
-                "GA-",
-                "AS-",
-                "BA-",
-                "CP-",
-                "EP-",
-                "NP-",
-                "UE-",
-                "UW-",
-                "TV-",
-                "VR-",
-                "XL-",
-            )
-        ):
-            raise ValueError("Digital address must start with valid Ghana region code")
-        return v
-
 
 class FacilityWithBloodBankCreate(FacilityBase):
+
     """Schema for creating a facility with its associated blood bank in one request"""
 
     blood_bank: Optional[BloodBankBase] = None

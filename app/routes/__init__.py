@@ -1,14 +1,14 @@
 from fastapi import APIRouter
-from .users import router as users_router
-from .facility import router as facility_router
-from .auth import router as auth_router
-from .blood_bank import router as blood_bank_router
-from .inventory import router as blood_inventory_router
-from .distribution import router as distribution_router
+from .users_routes import router as users_router
+from .facility_routes import router as facility_router
+from .auth_routes import router as auth_router
+from .blood_bank_routes import router as blood_bank_router
+from .inventory_routes import router as blood_inventory_router
+from .distribution_routes import router as distribution_router
 from .tracking_ruotes import router as tracking_router
 from .stats_routes import router as inventory_stats_route
-from .request import router as request_router
-from .notification import router as notification_router
+from .request_routes import router as request_router
+from .notification_routes import router as notification_router
 
 
 router = APIRouter()

@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from typing import List
-from app.models.health_facility import Facility
+from app.models.health_facility_model import Facility
 import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.executors.asyncio import AsyncIOExecutor
