@@ -62,22 +62,23 @@ class BloodInventoryCreate(BaseSchema):
     @field_validator("expiry_date")
     @classmethod
     def validate_expiry_date(cls, v: date) -> date:
+        from datetime import timedelta
+
         # Check if date is in the past
-        if v < date.today():
+        today = date.today()
+        if v < today:
             raise ValueError("Expiry date cannot be in the past")
 
         # Check if date is today (should be in the future)
-        if v == date.today():
+        if v == today:
             raise ValueError("Expiry date must be in the future")
 
         # Blood typically expires within 42 days for red cells, 5 days for platelets
         max_expiry_days = 42  # Conservative estimate for hospital inventory
-        max_expiry = date.today().replace(
-            day=min(date.today().day + max_expiry_days, 31)
-        )
+        max_expiry = today + timedelta(days=max_expiry_days)
         if v > max_expiry:
             raise ValueError(
-                f"Expiry date seems too far in the future (max {max_expiry_days} days)"
+                f"Expiry date seems too far in the future (max {max_expiry_days} days from today)"
             )
 
         return v
