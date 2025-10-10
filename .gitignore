@@ -35,6 +35,7 @@ db_fixtures.py
 awscliv2.zip
 
 # Test scripts and tokens
+tests/
 test_sse_client.py
 test_sse_full.py
 access_token.txt
