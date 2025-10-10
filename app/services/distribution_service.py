@@ -9,7 +9,6 @@ from typing import Optional, List
 from app.models.distribution_model import BloodDistribution
 from app.models.inventory_model import BloodInventory
 from app.schemas.distribution_schema import (
-    BloodDistributionCreate,
     BloodDistributionUpdate,
     DistributionStats,
     DistributionStatus,
@@ -30,60 +29,89 @@ class BloodDistributionService:
 
     async def create_distribution(
         self,
-        distribution_data: BloodDistributionCreate,
+        request_id: UUID,
         blood_bank_id: UUID,
         created_by_id: UUID,
+        notes: Optional[str] = None,
     ) -> BloodDistribution:
         """
-        Create a new blood distribution record and update inventory
+        Create a new blood distribution record and update inventory.
+        Auto-fills data from blood request if request_id is provided.
         """
-        # If blood_product_id is provided, verify it exists and belongs to this blood bank
-        if distribution_data.blood_product_id:
-            inventory_result = await self.db.execute(
-                select(BloodInventory).where(
-                    and_(
-                        BloodInventory.id == distribution_data.blood_product_id,
-                        BloodInventory.blood_bank_id == blood_bank_id,
-                    )
+        # Import here to avoid circular imports
+        from app.models.request_model import BloodRequest
+
+        # Fetch the blood request to auto-fill data
+        request_result = await self.db.execute(
+            select(BloodRequest).where(BloodRequest.id == request_id)
+        )
+        blood_request = request_result.scalar_one_or_none()
+
+        if not blood_request:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Blood request {request_id} not found",
+            )
+
+        # Validate request status - only fulfill pending or approved requests
+        from app.schemas.request_schema import RequestStatus
+
+        if blood_request.request_status not in [
+            RequestStatus.ACCEPTED,
+        ]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot fulfill request with status '{blood_request.request_status}'. Request must be 'accepted'.",
+            )
+
+        # Auto-fill ALL data from the blood request
+        blood_product = blood_request.blood_product
+        blood_type = blood_request.blood_type
+        quantity = blood_request.quantity_requested
+        dispatched_to_id = blood_request.facility_id
+
+        # Try to find matching inventory automatically (FIFO - First In First Out)
+        inventory_result = await self.db.execute(
+            select(BloodInventory)
+            .where(
+                and_(
+                    BloodInventory.blood_bank_id == blood_bank_id,
+                    BloodInventory.blood_product == blood_product,
+                    BloodInventory.blood_type == blood_type,
+                    BloodInventory.quantity >= quantity,
                 )
             )
-            inventory_item = inventory_result.scalar_one_or_none()
+            .order_by(BloodInventory.expiry_date.asc())  # Use oldest inventory first
+        )
+        inventory_item = inventory_result.scalars().first()
 
-            if not inventory_item:
-                raise HTTPException(
-                    status_code=404,
-                    detail="Blood inventory item not found or does not belong to your blood bank",
-                )
-
-            # Check if there's enough quantity
-            if inventory_item.quantity < distribution_data.quantity:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Insufficient quantity available. Requested: {distribution_data.quantity}, Available: {inventory_item.quantity}",
-                )
-
-            # Update inventory quantity
-            inventory_item.quantity -= distribution_data.quantity
-
-            # Use blood product and type from inventory
-            blood_product = inventory_item.blood_product
-            blood_type = inventory_item.blood_type
+        if inventory_item:
+            # Deduct from inventory
+            inventory_item.quantity -= quantity
+            blood_product_id = inventory_item.id
         else:
-            # Using the values provided in the request
-            blood_product = distribution_data.blood_product
-            blood_type = distribution_data.blood_type
+            # No matching inventory found - create distribution without inventory link
+            # This allows fulfillment from external sources or manual tracking
+            blood_product_id = None
+            import logging
+
+            logging.getLogger(__name__).warning(
+                f"No matching inventory found for request {request_id}. "
+                f"Creating distribution without inventory link. "
+                f"Blood product: {blood_product}, Type: {blood_type}, Quantity: {quantity}"
+            )
 
         # Create distribution record
         new_distribution = BloodDistribution(
-            blood_product_id=distribution_data.blood_product_id,
-            request_id=distribution_data.request_id,
+            blood_product_id=blood_product_id,
+            request_id=request_id,
             dispatched_from_id=blood_bank_id,
-            dispatched_to_id=distribution_data.dispatched_to_id,
+            dispatched_to_id=dispatched_to_id,
             created_by_id=created_by_id,
             blood_product=blood_product,
             blood_type=blood_type,
-            quantity=distribution_data.quantity,
-            notes=distribution_data.notes,
+            quantity=quantity,
+            notes=notes if notes else "Request dispatched",
             batch_number=generate_batch_number(),  # Auto-generated
             expiry_date=calculate_expiry_date(
                 blood_product

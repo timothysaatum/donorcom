@@ -31,20 +31,31 @@ class BloodDistributionBase(BaseModel):
 
 
 class BloodDistributionCreate(BaseModel):
-    blood_product: str = Field(
-        ..., description="Type of blood product (e.g., Whole Blood, Plasma)"
-    )
-    blood_type: str = Field(..., description="Blood type (e.g., A+, B-, O+)")
-    quantity: int = Field(..., ge=1, description="Units of blood being distributed")
-    notes: Optional[str] = Field(None, description="Additional notes or instructions")
-    blood_product_id: Optional[UUID4] = Field(
-        None, description="ID of the specific blood inventory item"
-    )
+    """
+    Create a blood distribution to fulfill a blood request.
+
+    All distribution details (blood product, type, quantity, destination) are automatically
+    pulled from the blood request to ensure data integrity and prevent mismatches.
+
+    The request_id is provided as a path parameter in the URL.
+    Optionally add notes for delivery instructions in the request body.
+
+    Example:
+    ```json
+    {
+      "notes": "Urgent delivery - patient in surgery"
+    }
+    ```
+    Or send an empty body: {}
+    """
+
     request_id: Optional[UUID4] = Field(
-        None, description="ID of the blood request this fulfills"
+        None,
+        description="ID of the blood request to fulfill. Typically provided as path parameter, not in body.",
     )
-    dispatched_to_id: UUID4 = Field(
-        ..., description="ID of the facility receiving the blood"
+    notes: Optional[str] = Field(
+        None,
+        description="Optional delivery notes or special handling instructions",
     )
 
 

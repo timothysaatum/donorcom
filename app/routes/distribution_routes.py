@@ -32,12 +32,12 @@ router = APIRouter(prefix="/blood-distribution", tags=["blood distribution"])
 
 
 @router.post(
-    "/",
+    "/{request_id}",
     response_model=BloodDistributionDetailResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def create_distribution(
-    distribution_data: BloodDistributionCreate,
+    request_id: UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
@@ -45,11 +45,32 @@ async def create_distribution(
             "facility.manage", "laboratory.manage", "blood.issue.can_create"
         )
     ),
+    notes: Optional[str] = None,
 ):
-    """Create a new blood distribution"""
+    """
+    Create a new blood distribution to fulfill a blood request.
+
+    Simply provide the request_id as a path parameter.
+    All blood product details are automatically pulled from the request for data integrity.
+
+    Path Parameter:
+    - request_id: UUID of the blood request to fulfill
+
+    Query Parameter (optional):
+    - notes: Optional delivery notes or special handling instructions
+
+    Examples:
+
+    1. Without notes:
+       POST /blood-distribution/3fa85f64-5717-4562-b3fc-2c963f66afa6
+
+    2. With notes:
+       POST /blood-distribution/3fa85f64-5717-4562-b3fc-2c963f66afa6?notes=Emergency%20case
+    """
     start_time = time.time()
     current_user_id = str(current_user.id)
     client_ip = get_client_ip(request)
+    request_id_str = str(request_id)
 
     logger.info(
         "Blood distribution creation started",
@@ -57,10 +78,8 @@ async def create_distribution(
             "event_type": "distribution_creation_attempt",
             "user_id": current_user_id,
             "client_ip": client_ip,
-            "blood_product": distribution_data.blood_product,
-            "blood_type": distribution_data.blood_type,
-            "quantity": distribution_data.quantity,
-            "dispatched_to_id": str(distribution_data.dispatched_to_id),
+            "request_id": request_id_str,
+            "notes": notes,
         },
     )
 
@@ -68,45 +87,13 @@ async def create_distribution(
         # Get the blood bank associated with the user
         blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
 
-        # Get the facility ID associated with this blood bank to prevent self-distribution
-        result = await db.execute(
-            select(BloodBank).where(BloodBank.id == blood_bank_id)
-        )
-        blood_bank = result.scalar_one()
-
-        # Check if the destination facility is the same as the source blood bank's facility
-        if blood_bank.facility_id == distribution_data.dispatched_to_id:
-            log_security_event(
-                event_type="distribution_creation_denied",
-                details={
-                    "reason": "self_distribution_attempt",
-                    "facility_id": str(blood_bank.facility_id),
-                    "blood_bank_id": str(blood_bank_id),
-                },
-                user_id=current_user_id,
-                ip_address=client_ip,
-            )
-
-            logger.warning(
-                "Distribution creation denied - self-distribution attempt",
-                extra={
-                    "event_type": "distribution_creation_denied",
-                    "user_id": current_user_id,
-                    "reason": "self_distribution_attempt",
-                    "facility_id": str(blood_bank.facility_id),
-                },
-            )
-
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot distribute blood to your own facility",
-            )
-
+        # Create the distribution - service will validate against request data
         distribution_service = BloodDistributionService(db)
         new_distribution = await distribution_service.create_distribution(
-            distribution_data=distribution_data,
+            request_id=request_id,
             blood_bank_id=blood_bank_id,
             created_by_id=current_user.id,
+            notes=notes,
         )
 
         # Validate distribution safety after creation
@@ -139,11 +126,11 @@ async def create_distribution(
             event_type="distribution_created",
             details={
                 "distribution_id": str(new_distribution.id),
-                "blood_product": distribution_data.blood_product,
-                "blood_type": distribution_data.blood_type,
-                "quantity": distribution_data.quantity,
+                "blood_product": new_distribution.blood_product,
+                "blood_type": new_distribution.blood_type,
+                "quantity": new_distribution.quantity,
                 "dispatched_from_id": str(blood_bank_id),
-                "dispatched_to_id": str(distribution_data.dispatched_to_id),
+                "dispatched_to_id": str(new_distribution.dispatched_to_id),
                 "duration_ms": duration_ms,
             },
             user_id=current_user_id,
@@ -155,11 +142,11 @@ async def create_distribution(
             resource_type="blood_distribution",
             resource_id=str(new_distribution.id),
             new_values={
-                "blood_product": distribution_data.blood_product,
-                "blood_type": distribution_data.blood_type,
-                "quantity": distribution_data.quantity,
+                "blood_product": new_distribution.blood_product,
+                "blood_type": new_distribution.blood_type,
+                "quantity": new_distribution.quantity,
                 "dispatched_from_id": str(blood_bank_id),
-                "dispatched_to_id": str(distribution_data.dispatched_to_id),
+                "dispatched_to_id": str(new_distribution.dispatched_to_id),
                 "status": new_distribution.status.value,
                 "created_by_id": current_user_id,
             },
@@ -172,9 +159,9 @@ async def create_distribution(
                 "event_type": "distribution_created",
                 "user_id": current_user_id,
                 "distribution_id": str(new_distribution.id),
-                "blood_product": distribution_data.blood_product,
-                "blood_type": distribution_data.blood_type,
-                "quantity": distribution_data.quantity,
+                "blood_product": new_distribution.blood_product,
+                "blood_type": new_distribution.blood_type,
+                "quantity": new_distribution.quantity,
                 "duration_ms": duration_ms,
             },
         )
@@ -186,8 +173,8 @@ async def create_distribution(
                 duration_seconds=duration_ms / 1000,
                 additional_metrics={
                     "slow_operation": True,
-                    "blood_product": distribution_data.blood_product,
-                    "quantity": distribution_data.quantity,
+                    "blood_product": new_distribution.blood_product,
+                    "quantity": new_distribution.quantity,
                 },
             )
 
@@ -222,8 +209,8 @@ async def create_distribution(
         # Log unexpected errors
         duration_ms = (time.time() - start_time) * 1000
         dispatched_to_id = (
-            str(distribution_data.dispatched_to_id)
-            if "distribution" in locals() and distribution_data
+            str(new_distribution.dispatched_to_id)
+            if "new_distribution" in locals()
             else "unknown"
         )
 

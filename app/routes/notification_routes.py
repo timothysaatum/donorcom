@@ -173,7 +173,7 @@ async def sse_notifications(
 
     # Security: Get client IP for validation
     client_ip = request.client.host if request.client else "unknown"
-    
+
     # Validate token and get user
     try:
         # Decode token without logging it
@@ -327,7 +327,7 @@ async def sse_notifications(
                     media_type="text/event-stream",
                     status_code=401,
                 )
-            
+
             # Security: Check if IP matches session IP (optional strict mode)
             # Uncomment to enable strict IP validation
             # if session.ip_address and session.ip_address != client_ip:
@@ -390,11 +390,11 @@ async def sse_notifications(
         )
 
     user_id = str(current_user.id)
-    
+
     # Security: Limit concurrent connections per user
     existing_connections = manager.get_user_connection_count(user_id)
     MAX_CONNECTIONS_PER_USER = 3  # Adjust as needed
-    
+
     if existing_connections >= MAX_CONNECTIONS_PER_USER:
         logger.warning(
             f"SSE connection denied - max connections reached for user {user_id}",
@@ -414,8 +414,8 @@ async def sse_notifications(
             media_type="text/event-stream",
             status_code=429,
         )
-    
-    event_queue = manager.add_sse_connection(user_id)
+
+    event_queue = await manager.add_sse_connection(user_id)
 
     logger.info(
         f"SSE connection established for user {user_id}",
@@ -432,7 +432,7 @@ async def sse_notifications(
         """
         Verify user still has required permissions and valid session.
         Returns True if authorized, False otherwise.
-        
+
         Security: Re-validates token and checks for revocation
         """
         try:
@@ -441,7 +441,7 @@ async def sse_notifications(
                 payload = TokenManager.decode_token(access_token)
                 if not payload or payload.get("sub") != user_id:
                     return False
-                
+
                 # Check if token has expired
                 token_exp = payload.get("exp")
                 if token_exp:
@@ -455,7 +455,7 @@ async def sse_notifications(
                             },
                         )
                         return False
-                        
+
             except Exception as e:
                 logger.warning(
                     f"SSE auth check failed - token validation error: {user_id}",
@@ -545,11 +545,16 @@ async def sse_notifications(
 
     async def send_heartbeat():
         """Periodic heartbeat with authorization check"""
-        while True:
-            await asyncio.sleep(30)
+        try:
+            while True:
+                await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            # Task was cancelled, exit gracefully
+            pass
 
     async def event_stream():
         """Generator function that yields SSE-formatted events with security checks"""
+        heartbeat_task = None
         try:
             # Send initial connection success event
             connection_event = {
@@ -564,8 +569,8 @@ async def sse_notifications(
             last_auth_check = datetime.now(timezone.utc)
             auth_check_interval = timedelta(minutes=5)  # Re-check every 5 minutes
 
-            try:
-                while True:
+            while True:
+                try:
                     # Check if client disconnected
                     if await request.is_disconnected():
                         logger.info(
@@ -580,25 +585,36 @@ async def sse_notifications(
                     # Periodic authorization re-check
                     current_time = datetime.now(timezone.utc)
                     if current_time - last_auth_check > auth_check_interval:
-                        is_authorized = await verify_authorization()
-                        if not is_authorized:
-                            logger.warning(
-                                f"SSE authorization lost for user {user_id}",
+                        try:
+                            is_authorized = await verify_authorization()
+                            if not is_authorized:
+                                logger.warning(
+                                    f"SSE authorization lost for user {user_id}",
+                                    extra={
+                                        "event_type": "sse_authorization_lost",
+                                        "user_id": user_id,
+                                    },
+                                )
+                                # Send termination event
+                                termination_event = {
+                                    "type": "connection_terminated",
+                                    "reason": "authorization_lost",
+                                    "message": "Your session is no longer authorized",
+                                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                                }
+                                yield f"data: {json.dumps(termination_event)}\n\n"
+                                break
+                            last_auth_check = current_time
+                        except Exception as auth_error:
+                            logger.error(
+                                f"Authorization check error for user {user_id}: {auth_error}",
                                 extra={
-                                    "event_type": "sse_authorization_lost",
+                                    "event_type": "sse_auth_check_error",
                                     "user_id": user_id,
+                                    "error": str(auth_error),
                                 },
                             )
-                            # Send termination event
-                            termination_event = {
-                                "type": "connection_terminated",
-                                "reason": "authorization_lost",
-                                "message": "Your session is no longer authorized",
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
-                            }
-                            yield f"data: {json.dumps(termination_event)}\n\n"
-                            break
-                        last_auth_check = current_time
+                            # Continue on auth check errors, don't break the stream
 
                     try:
                         # Wait for event with timeout
@@ -609,18 +625,29 @@ async def sse_notifications(
                             "heartbeat",
                             "connection_established",
                         ]:
-                            # Quick permission check for critical events
-                            is_authorized = await verify_authorization()
-                            if not is_authorized:
-                                logger.warning(
-                                    f"Event blocked due to authorization loss: {user_id}",
+                            try:
+                                # Quick permission check for critical events
+                                is_authorized = await verify_authorization()
+                                if not is_authorized:
+                                    logger.warning(
+                                        f"Event blocked due to authorization loss: {user_id}",
+                                        extra={
+                                            "event_type": "sse_event_blocked",
+                                            "user_id": user_id,
+                                            "event_type_blocked": event.get("type"),
+                                        },
+                                    )
+                                    break
+                            except Exception as auth_error:
+                                logger.error(
+                                    f"Event authorization check error: {auth_error}",
                                     extra={
-                                        "event_type": "sse_event_blocked",
+                                        "event_type": "sse_event_auth_error",
                                         "user_id": user_id,
-                                        "event_type_blocked": event.get("type"),
                                     },
                                 )
-                                break
+                                # Don't send the event if auth check fails
+                                continue
 
                         # Format and send the event
                         yield f"data: {json.dumps(event)}\n\n"
@@ -635,28 +662,72 @@ async def sse_notifications(
                         )
 
                     except asyncio.TimeoutError:
-                        # Send heartbeat (keep-alive)
-                        heartbeat = {
-                            "type": "heartbeat",
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                        }
-                        yield f": heartbeat\n\n"
+                        # Send heartbeat (keep-alive) - this is critical for maintaining connection
+                        try:
+                            yield ": heartbeat\n\n"
+                            logger.debug(
+                                f"Heartbeat sent to user {user_id}",
+                                extra={
+                                    "event_type": "sse_heartbeat_sent",
+                                    "user_id": user_id,
+                                },
+                            )
+                        except Exception as heartbeat_error:
+                            logger.error(
+                                f"Failed to send heartbeat to user {user_id}: {heartbeat_error}",
+                                extra={
+                                    "event_type": "sse_heartbeat_error",
+                                    "user_id": user_id,
+                                    "error": str(heartbeat_error),
+                                },
+                            )
+                            # If we can't send heartbeat, connection is likely dead
+                            break
+
+                    except asyncio.CancelledError:
+                        logger.info(
+                            f"SSE stream cancelled for user {user_id}",
+                            extra={
+                                "event_type": "sse_stream_cancelled",
+                                "user_id": user_id,
+                            },
+                        )
+                        break
 
                     except Exception as e:
                         logger.error(
-                            f"SSE error for user {user_id}: {e}",
+                            f"SSE event processing error for user {user_id}: {e}",
                             extra={
-                                "event_type": "sse_stream_error",
+                                "event_type": "sse_event_error",
                                 "user_id": user_id,
                                 "error": str(e),
                             },
                             exc_info=True,
                         )
-                        break
+                        # Don't break on event processing errors, continue stream
+                        continue
 
-            finally:
-                heartbeat_task.cancel()
+                except Exception as loop_error:
+                    logger.error(
+                        f"SSE loop error for user {user_id}: {loop_error}",
+                        extra={
+                            "event_type": "sse_loop_error",
+                            "user_id": user_id,
+                            "error": str(loop_error),
+                        },
+                        exc_info=True,
+                    )
+                    # Break on unexpected loop errors
+                    break
 
+        except GeneratorExit:
+            logger.info(
+                f"SSE generator exit for user {user_id}",
+                extra={
+                    "event_type": "sse_generator_exit",
+                    "user_id": user_id,
+                },
+            )
         except Exception as e:
             logger.error(
                 f"SSE stream initialization error for user {user_id}: {e}",
@@ -668,8 +739,16 @@ async def sse_notifications(
                 exc_info=True,
             )
         finally:
+            # Clean up heartbeat task
+            if heartbeat_task and not heartbeat_task.done():
+                heartbeat_task.cancel()
+                try:
+                    await heartbeat_task
+                except asyncio.CancelledError:
+                    pass
+
             # Clean up connection
-            manager.disconnect_sse(user_id, event_queue)
+            await manager.disconnect_sse(user_id, event_queue)
             logger.info(
                 f"SSE connection closed for user {user_id}",
                 extra={"event_type": "sse_connection_closed", "user_id": user_id},
