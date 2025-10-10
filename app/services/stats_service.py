@@ -512,11 +512,18 @@ class StatsService(BaseChartService):
             f"products={db_product_names}"
         )
 
+        # Convert timezone-aware datetimes to naive for database comparison
+        # The database column is TIMESTAMP WITHOUT TIME ZONE
+        from_date_naive = (
+            from_date.replace(tzinfo=None) if from_date.tzinfo else from_date
+        )
+        to_date_naive = to_date.replace(tzinfo=None) if to_date.tzinfo else to_date
+
         conditions = [
             BloodDistribution.dispatched_from_id == facility_id,
             BloodDistribution.date_delivered.is_not(None),
-            BloodDistribution.date_delivered >= from_date,
-            BloodDistribution.date_delivered <= to_date,
+            BloodDistribution.date_delivered >= from_date_naive,
+            BloodDistribution.date_delivered <= to_date_naive,
             BloodDistribution.status.in_(["delivered", "in transit"]),
         ]
 
@@ -612,9 +619,16 @@ class RequestTrackingService(BaseChartService):
             f"products={db_product_names}, direction={request_direction}"
         )
 
+        # Convert timezone-aware datetimes to naive for database comparison
+        # The database column is TIMESTAMP WITHOUT TIME ZONE
+        from_date_naive = (
+            from_date.replace(tzinfo=None) if from_date.tzinfo else from_date
+        )
+        to_date_naive = to_date.replace(tzinfo=None) if to_date.tzinfo else to_date
+
         conditions = [
-            BloodRequest.created_at >= from_date,
-            BloodRequest.created_at <= to_date,
+            BloodRequest.created_at >= from_date_naive,
+            BloodRequest.created_at <= to_date_naive,
         ]
 
         # Handle request direction
