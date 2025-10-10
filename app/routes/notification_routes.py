@@ -2,17 +2,32 @@ import json
 from datetime import datetime, timedelta, timezone
 import uuid
 from app.dependencies import get_db
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, Request, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from app.models.rbac_model import Role
 from app.models.user_model import User
+from app.models.notification_model import Notification
 from app.services.notification_sse import manager
 from app.utils.permission_checker import require_permission
 from app.utils.logging_config import get_logger
 import asyncio
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
-from app.utils.security import SessionManager, TokenManager
+from sqlalchemy import and_, func, update, delete
+from app.utils.security import SessionManager, TokenManager, get_current_user
+from app.schemas.notification_schema import (
+    NotificationResponse,
+    NotificationUpdate,
+    NotificationBatchUpdate,
+    NotificationStats,
+)
+from app.utils.pagination import (
+    PaginatedResponse,
+    PaginationParams,
+    get_pagination_params,
+)
+from typing import Optional, List
+from uuid import UUID
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
@@ -866,3 +881,652 @@ async def broadcast_notification(
         "sent_count": sent_count,
         "message": f"Notification sent to {sent_count} connections",
     }
+
+
+@router.get("/", response_model=PaginatedResponse[NotificationResponse])
+async def get_user_notifications(
+    request: Request,
+    pagination: PaginationParams = Depends(get_pagination_params),
+    is_read: Optional[bool] = None,
+    db=Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get paginated list of notifications for the current user.
+
+    Query Parameters:
+        - page: Page number (default: 1)
+        - page_size: Items per page (default: 20, max: 100)
+        - is_read: Filter by read status (optional)
+    """
+    user_id = str(current_user.id)
+
+    logger.info(
+        f"Fetching notifications for user {user_id}",
+        extra={
+            "event_type": "fetch_notifications",
+            "user_id": user_id,
+            "page": pagination.page,
+            "page_size": pagination.page_size,
+            "is_read_filter": is_read,
+        },
+    )
+
+    try:
+        # Build query
+        query = select(Notification).where(Notification.user_id == current_user.id)
+
+        # Apply filters
+        if is_read is not None:
+            query = query.where(Notification.is_read == is_read)
+
+        # Order by created_at desc (newest first)
+        query = query.order_by(Notification.created_at.desc())
+
+        # Get total count
+        count_query = (
+            select(func.count())
+            .select_from(Notification)
+            .where(Notification.user_id == current_user.id)
+        )
+        if is_read is not None:
+            count_query = count_query.where(Notification.is_read == is_read)
+
+        total_result = await db.execute(count_query)
+        total_items = total_result.scalar()
+
+        # Apply pagination
+        offset = (pagination.page - 1) * pagination.page_size
+        query = query.offset(offset).limit(pagination.page_size)
+
+        # Execute query
+        result = await db.execute(query)
+        notifications = result.scalars().all()
+
+        # Calculate pagination metadata
+        total_pages = (total_items + pagination.page_size - 1) // pagination.page_size
+        has_next = pagination.page < total_pages
+        has_prev = pagination.page > 1
+
+        logger.info(
+            f"Retrieved {len(notifications)} notifications for user {user_id}",
+            extra={
+                "event_type": "notifications_retrieved",
+                "user_id": user_id,
+                "count": len(notifications),
+                "total": total_items,
+            },
+        )
+
+        return PaginatedResponse(
+            items=notifications,
+            total_items=total_items,
+            total_pages=total_pages,
+            current_page=pagination.page,
+            page_size=pagination.page_size,
+            has_next=has_next,
+            has_prev=has_prev,
+        )
+
+    except Exception as e:
+        logger.error(
+            f"Error fetching notifications for user {user_id}: {str(e)}",
+            extra={
+                "event_type": "fetch_notifications_error",
+                "user_id": user_id,
+                "error": str(e),
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch notifications",
+        )
+
+
+@router.get("/stats", response_model=NotificationStats)
+async def get_notification_stats(
+    request: Request,
+    db=Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get notification statistics for the current user.
+    Returns total, read, and unread counts.
+    """
+    user_id = str(current_user.id)
+
+    try:
+        # Get total count
+        total_result = await db.execute(
+            select(func.count())
+            .select_from(Notification)
+            .where(Notification.user_id == current_user.id)
+        )
+        total_notifications = total_result.scalar()
+
+        # Get unread count
+        unread_result = await db.execute(
+            select(func.count())
+            .select_from(Notification)
+            .where(
+                and_(
+                    Notification.user_id == current_user.id,
+                    Notification.is_read == False,
+                )
+            )
+        )
+        unread_count = unread_result.scalar()
+
+        # Calculate read count
+        read_count = total_notifications - unread_count
+
+        logger.info(
+            f"Notification stats for user {user_id}: total={total_notifications}, unread={unread_count}",
+            extra={
+                "event_type": "notification_stats",
+                "user_id": user_id,
+                "total": total_notifications,
+                "unread": unread_count,
+            },
+        )
+
+        return NotificationStats(
+            total_notifications=total_notifications,
+            unread_count=unread_count,
+            read_count=read_count,
+        )
+
+    except Exception as e:
+        logger.error(
+            f"Error fetching notification stats for user {user_id}: {str(e)}",
+            extra={
+                "event_type": "notification_stats_error",
+                "user_id": user_id,
+                "error": str(e),
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch notification statistics",
+        )
+
+
+@router.get("/{notification_id}", response_model=NotificationResponse)
+async def get_notification_by_id(
+    notification_id: UUID,
+    request: Request,
+    db=Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get a specific notification by ID.
+    Only the notification owner can access it.
+    """
+    user_id = str(current_user.id)
+
+    try:
+        # Fetch notification
+        result = await db.execute(
+            select(Notification).where(
+                and_(
+                    Notification.id == notification_id,
+                    Notification.user_id == current_user.id,
+                )
+            )
+        )
+        notification = result.scalar_one_or_none()
+
+        if not notification:
+            logger.warning(
+                f"Notification {notification_id} not found for user {user_id}",
+                extra={
+                    "event_type": "notification_not_found",
+                    "user_id": user_id,
+                    "notification_id": str(notification_id),
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notification not found",
+            )
+
+        logger.info(
+            f"Retrieved notification {notification_id} for user {user_id}",
+            extra={
+                "event_type": "notification_retrieved",
+                "user_id": user_id,
+                "notification_id": str(notification_id),
+            },
+        )
+
+        return notification
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Error fetching notification {notification_id} for user {user_id}: {str(e)}",
+            extra={
+                "event_type": "fetch_notification_error",
+                "user_id": user_id,
+                "notification_id": str(notification_id),
+                "error": str(e),
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch notification",
+        )
+
+
+@router.patch("/{notification_id}", response_model=NotificationResponse)
+async def update_notification(
+    notification_id: UUID,
+    notification_data: NotificationUpdate,
+    request: Request,
+    db=Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Update a notification's read status.
+    Only the notification owner can update it.
+    """
+    user_id = str(current_user.id)
+
+    try:
+        # Fetch notification
+        result = await db.execute(
+            select(Notification).where(
+                and_(
+                    Notification.id == notification_id,
+                    Notification.user_id == current_user.id,
+                )
+            )
+        )
+        notification = result.scalar_one_or_none()
+
+        if not notification:
+            logger.warning(
+                f"Notification {notification_id} not found for user {user_id}",
+                extra={
+                    "event_type": "notification_not_found_for_update",
+                    "user_id": user_id,
+                    "notification_id": str(notification_id),
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notification not found",
+            )
+
+        # Update notification
+        old_status = notification.is_read
+        notification.is_read = notification_data.is_read
+
+        await db.commit()
+        await db.refresh(notification)
+
+        logger.info(
+            f"Updated notification {notification_id} for user {user_id}: {old_status} -> {notification_data.is_read}",
+            extra={
+                "event_type": "notification_updated",
+                "user_id": user_id,
+                "notification_id": str(notification_id),
+                "old_status": old_status,
+                "new_status": notification_data.is_read,
+            },
+        )
+
+        return notification
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(
+            f"Error updating notification {notification_id} for user {user_id}: {str(e)}",
+            extra={
+                "event_type": "update_notification_error",
+                "user_id": user_id,
+                "notification_id": str(notification_id),
+                "error": str(e),
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update notification",
+        )
+
+
+@router.patch("/batch/update", response_model=dict)
+async def batch_update_notifications(
+    batch_data: NotificationBatchUpdate,
+    request: Request,
+    db=Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Batch update multiple notifications' read status.
+    Only the notification owner can update their notifications.
+    """
+    user_id = str(current_user.id)
+    notification_ids = batch_data.notification_ids
+
+    logger.info(
+        f"Batch updating {len(notification_ids)} notifications for user {user_id}",
+        extra={
+            "event_type": "batch_update_notifications_attempt",
+            "user_id": user_id,
+            "count": len(notification_ids),
+            "is_read": batch_data.is_read,
+        },
+    )
+
+    try:
+        # Update notifications
+        result = await db.execute(
+            update(Notification)
+            .where(
+                and_(
+                    Notification.id.in_(notification_ids),
+                    Notification.user_id == current_user.id,
+                )
+            )
+            .values(is_read=batch_data.is_read)
+        )
+
+        updated_count = result.rowcount
+
+        await db.commit()
+
+        logger.info(
+            f"Batch updated {updated_count} notifications for user {user_id}",
+            extra={
+                "event_type": "batch_update_notifications_success",
+                "user_id": user_id,
+                "updated_count": updated_count,
+                "requested_count": len(notification_ids),
+            },
+        )
+
+        return {
+            "success": True,
+            "updated_count": updated_count,
+            "message": f"Successfully updated {updated_count} notification(s)",
+        }
+
+    except Exception as e:
+        await db.rollback()
+        logger.error(
+            f"Error batch updating notifications for user {user_id}: {str(e)}",
+            extra={
+                "event_type": "batch_update_notifications_error",
+                "user_id": user_id,
+                "error": str(e),
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to batch update notifications",
+        )
+
+
+@router.post("/mark-all-read", response_model=dict)
+async def mark_all_notifications_read(
+    request: Request,
+    db=Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Mark all notifications as read for the current user.
+    """
+    user_id = str(current_user.id)
+
+    try:
+        # Update all unread notifications
+        result = await db.execute(
+            update(Notification)
+            .where(
+                and_(
+                    Notification.user_id == current_user.id,
+                    Notification.is_read == False,
+                )
+            )
+            .values(is_read=True)
+        )
+
+        updated_count = result.rowcount
+
+        await db.commit()
+
+        logger.info(
+            f"Marked {updated_count} notifications as read for user {user_id}",
+            extra={
+                "event_type": "mark_all_read",
+                "user_id": user_id,
+                "updated_count": updated_count,
+            },
+        )
+
+        return {
+            "success": True,
+            "updated_count": updated_count,
+            "message": f"Successfully marked {updated_count} notification(s) as read",
+        }
+
+    except Exception as e:
+        await db.rollback()
+        logger.error(
+            f"Error marking all notifications as read for user {user_id}: {str(e)}",
+            extra={
+                "event_type": "mark_all_read_error",
+                "user_id": user_id,
+                "error": str(e),
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to mark all notifications as read",
+        )
+
+
+@router.delete("/{notification_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_notification(
+    notification_id: UUID,
+    request: Request,
+    db=Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Delete a specific notification.
+    Only the notification owner can delete it.
+    """
+    user_id = str(current_user.id)
+
+    try:
+        # Check if notification exists and belongs to user
+        result = await db.execute(
+            select(Notification).where(
+                and_(
+                    Notification.id == notification_id,
+                    Notification.user_id == current_user.id,
+                )
+            )
+        )
+        notification = result.scalar_one_or_none()
+
+        if not notification:
+            logger.warning(
+                f"Notification {notification_id} not found for deletion by user {user_id}",
+                extra={
+                    "event_type": "notification_not_found_for_delete",
+                    "user_id": user_id,
+                    "notification_id": str(notification_id),
+                },
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notification not found",
+            )
+
+        # Delete notification
+        await db.delete(notification)
+        await db.commit()
+
+        logger.info(
+            f"Deleted notification {notification_id} for user {user_id}",
+            extra={
+                "event_type": "notification_deleted",
+                "user_id": user_id,
+                "notification_id": str(notification_id),
+            },
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(
+            f"Error deleting notification {notification_id} for user {user_id}: {str(e)}",
+            extra={
+                "event_type": "delete_notification_error",
+                "user_id": user_id,
+                "notification_id": str(notification_id),
+                "error": str(e),
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete notification",
+        )
+
+
+@router.delete("/batch/delete", response_model=dict)
+async def batch_delete_notifications(
+    notification_ids: List[UUID],
+    request: Request,
+    db=Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Batch delete multiple notifications.
+    Only the notification owner can delete their notifications.
+    """
+    user_id = str(current_user.id)
+
+    logger.info(
+        f"Batch deleting {len(notification_ids)} notifications for user {user_id}",
+        extra={
+            "event_type": "batch_delete_notifications_attempt",
+            "user_id": user_id,
+            "count": len(notification_ids),
+        },
+    )
+
+    try:
+        # Delete notifications
+        result = await db.execute(
+            delete(Notification).where(
+                and_(
+                    Notification.id.in_(notification_ids),
+                    Notification.user_id == current_user.id,
+                )
+            )
+        )
+
+        deleted_count = result.rowcount
+
+        await db.commit()
+
+        logger.info(
+            f"Batch deleted {deleted_count} notifications for user {user_id}",
+            extra={
+                "event_type": "batch_delete_notifications_success",
+                "user_id": user_id,
+                "deleted_count": deleted_count,
+                "requested_count": len(notification_ids),
+            },
+        )
+
+        return {
+            "success": True,
+            "deleted_count": deleted_count,
+            "message": f"Successfully deleted {deleted_count} notification(s)",
+        }
+
+    except Exception as e:
+        await db.rollback()
+        logger.error(
+            f"Error batch deleting notifications for user {user_id}: {str(e)}",
+            extra={
+                "event_type": "batch_delete_notifications_error",
+                "user_id": user_id,
+                "error": str(e),
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to batch delete notifications",
+        )
+
+
+@router.delete("/clear-all", response_model=dict)
+async def clear_all_notifications(
+    request: Request,
+    db=Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Delete all notifications for the current user.
+    Use with caution - this action cannot be undone.
+    """
+    user_id = str(current_user.id)
+
+    try:
+        # Delete all user's notifications
+        result = await db.execute(
+            delete(Notification).where(Notification.user_id == current_user.id)
+        )
+
+        deleted_count = result.rowcount
+
+        await db.commit()
+
+        logger.info(
+            f"Cleared all {deleted_count} notifications for user {user_id}",
+            extra={
+                "event_type": "clear_all_notifications",
+                "user_id": user_id,
+                "deleted_count": deleted_count,
+            },
+        )
+
+        return {
+            "success": True,
+            "deleted_count": deleted_count,
+            "message": f"Successfully cleared {deleted_count} notification(s)",
+        }
+
+    except Exception as e:
+        await db.rollback()
+        logger.error(
+            f"Error clearing all notifications for user {user_id}: {str(e)}",
+            extra={
+                "event_type": "clear_all_notifications_error",
+                "user_id": user_id,
+                "error": str(e),
+            },
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to clear all notifications",
+        )
