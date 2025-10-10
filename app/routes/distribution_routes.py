@@ -38,6 +38,7 @@ router = APIRouter(prefix="/blood-distribution", tags=["blood distribution"])
 )
 async def create_distribution(
     request_id: UUID,
+    distribution_data: BloodDistributionCreate,
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
@@ -45,7 +46,6 @@ async def create_distribution(
             "facility.manage", "laboratory.manage", "blood.issue.can_create"
         )
     ),
-    notes: Optional[str] = None,
 ):
     """
     Create a new blood distribution to fulfill a blood request.
@@ -56,16 +56,18 @@ async def create_distribution(
     Path Parameter:
     - request_id: UUID of the blood request to fulfill
 
-    Query Parameter (optional):
+    Request Body (optional):
     - notes: Optional delivery notes or special handling instructions
 
     Examples:
 
     1. Without notes:
        POST /blood-distribution/3fa85f64-5717-4562-b3fc-2c963f66afa6
+       Body: {}
 
     2. With notes:
-       POST /blood-distribution/3fa85f64-5717-4562-b3fc-2c963f66afa6?notes=Emergency%20case
+       POST /blood-distribution/3fa85f64-5717-4562-b3fc-2c963f66afa6
+       Body: {"notes": "Emergency case - patient in surgery"}
     """
     start_time = time.time()
     current_user_id = str(current_user.id)
@@ -79,7 +81,7 @@ async def create_distribution(
             "user_id": current_user_id,
             "client_ip": client_ip,
             "request_id": request_id_str,
-            "notes": notes,
+            "notes": distribution_data.notes,
         },
     )
 
@@ -93,7 +95,7 @@ async def create_distribution(
             request_id=request_id,
             blood_bank_id=blood_bank_id,
             created_by_id=current_user.id,
-            notes=notes,
+            notes=distribution_data.notes,
         )
 
         # Validate distribution safety after creation

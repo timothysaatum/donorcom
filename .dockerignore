@@ -7,20 +7,70 @@ __pycache__/
 # Virtual environments
 venv/
 env/
-*.env
+.venv
+ENV/
 
-# Logs and databases
-*.log
+# Environment files (keep only in secure config)
+*.env
+.env.*
+dev_credentials.txt
+
+# Local Development Database (SQLite)
 *.sqlite3
+*.sqlite
+*.db
+db.sqlite3
+db.sqlite3.backup
+
+# Alembic Migrations (run separately in CI/CD pipeline)
+alembic/
+alembic.ini
+
+# Local Development Scripts
+verify_sqlite_db.py
+fix_alembic_version.py
+check_migration_compatibility.py
+test_datetime_fix.py
+
+# Development Documentation
+SQLITE_DEV_SETUP.md
+ALEMBIC_QUICK_REFERENCE.md
+ALEMBIC_MIGRATION_REPORT.md
+MIGRATION_COMPATIBILITY_REPORT.md
+DATETIME_FIX_DOCUMENTATION.md
+QUICK_FIX_SUMMARY.md
+NOTIFICATION_API_GUIDE.md
+
+# Logs and temporary files
+*.log
+*.log.*
+logs/
+*.tmp
+*.temp
 
 # Git files
 .git/
 .gitignore
 
-# Docker files (optional)
-Dockerfile
-docker-compose.yml
+# Docker files (optional - depends on deployment)
+# Dockerfile
+# docker-compose.yml
 
 # OS files
 .DS_Store
 Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
+tests/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

@@ -48,11 +48,6 @@ class BloodDistributionCreate(BaseModel):
     ```
     Or send an empty body: {}
     """
-
-    request_id: Optional[UUID4] = Field(
-        None,
-        description="ID of the blood request to fulfill. Typically provided as path parameter, not in body.",
-    )
     notes: Optional[str] = Field(
         None,
         description="Optional delivery notes or special handling instructions",

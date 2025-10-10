@@ -33,135 +33,6 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
 
-# @router.get("/sse/stream")
-# async def sse_notifications(
-#     request: Request,
-#     db=Depends(get_db),
-#     current_user=Depends(
-#         require_permission(
-#             "facility.manage",
-#             "laboratory.manage",
-#             "blood.inventory.manage",
-#             validate_session=True,
-#         )
-#     ),
-# ):
-#     """
-#     SSE endpoint for real-time notifications streaming.
-#     Maintains a persistent connection to push server events to the client.
-#     """
-#     user_id = str(current_user.id)
-#     event_queue = manager.add_sse_connection(user_id)
-
-#     logger.info(
-#         f"SSE connection established for user {user_id}",
-#         extra={
-#             "event_type": "sse_connection_established",
-#             "user_id": user_id,
-#             "user_email": current_user.email,
-#         },
-#     )
-
-#     async def event_stream():
-#         """Generator function that yields SSE-formatted events"""
-#         try:
-#             # Send initial connection success event
-#             connection_event = {
-#                 "type": "connection_established",
-#                 "message": "Successfully connected to notification stream",
-#                 "timestamp": datetime.now(timezone.utc).isoformat(),
-#                 "user_id": user_id,
-#             }
-#             yield f"data: {json.dumps(connection_event)}\n\n"
-
-#             # Send heartbeat every 30 seconds to keep connection alive
-#             heartbeat_task = asyncio.create_task(send_heartbeat())
-
-#             try:
-#                 while True:
-#                     # Check if client disconnected
-#                     if await request.is_disconnected():
-#                         logger.info(
-#                             f"SSE client {user_id} disconnected",
-#                             extra={
-#                                 "event_type": "sse_client_disconnected",
-#                                 "user_id": user_id,
-#                             },
-#                         )
-#                         break
-
-#                     try:
-#                         # Wait for event with timeout (for heartbeat)
-#                         event = await asyncio.wait_for(event_queue.get(), timeout=30.0)
-
-#                         # Format and send the event
-#                         yield f"data: {json.dumps(event)}\n\n"
-
-#                         logger.debug(
-#                             f"SSE event sent to user {user_id}",
-#                             extra={
-#                                 "event_type": "sse_event_sent",
-#                                 "user_id": user_id,
-#                                 "notification_type": event.get("type"),
-#                             },
-#                         )
-
-#                     except asyncio.TimeoutError:
-#                         # Send heartbeat (keep-alive)
-#                         heartbeat = {
-#                             "type": "heartbeat",
-#                             "timestamp": datetime.now(timezone.utc).isoformat(),
-#                         }
-#                         yield f": heartbeat\n\n"
-
-#                     except Exception as e:
-#                         logger.error(
-#                             f"SSE error for user {user_id}: {e}",
-#                             extra={
-#                                 "event_type": "sse_stream_error",
-#                                 "user_id": user_id,
-#                                 "error": str(e),
-#                             },
-#                             exc_info=True,
-#                         )
-#                         break
-
-#             finally:
-#                 heartbeat_task.cancel()
-
-#         except Exception as e:
-#             logger.error(
-#                 f"SSE stream initialization error for user {user_id}: {e}",
-#                 extra={
-#                     "event_type": "sse_initialization_error",
-#                     "user_id": user_id,
-#                     "error": str(e),
-#                 },
-#                 exc_info=True,
-#             )
-#         finally:
-#             # Clean up connection
-#             manager.disconnect_sse(user_id, event_queue)
-#             logger.info(
-#                 f"SSE connection closed for user {user_id}",
-#                 extra={"event_type": "sse_connection_closed", "user_id": user_id},
-#             )
-
-#     async def send_heartbeat():
-#         """Background task to send periodic heartbeats"""
-#         while True:
-#             await asyncio.sleep(30)
-
-
-#     return StreamingResponse(
-#         event_stream(),
-#         media_type="text/event-stream",
-#         headers={
-#             "Cache-Control": "no-cache",
-#             "Connection": "keep-alive",
-#             "X-Accel-Buffering": "no",  # Disable nginx buffering
-#         },
-#     )
 @router.get("/sse/stream")
 async def sse_notifications(
     request: Request,
@@ -602,34 +473,60 @@ async def sse_notifications(
                     if current_time - last_auth_check > auth_check_interval:
                         try:
                             is_authorized = await verify_authorization()
-                            if not is_authorized:
-                                logger.warning(
-                                    f"SSE authorization lost for user {user_id}",
-                                    extra={
-                                        "event_type": "sse_authorization_lost",
-                                        "user_id": user_id,
-                                    },
-                                )
-                                # Send termination event
-                                termination_event = {
-                                    "type": "connection_terminated",
-                                    "reason": "authorization_lost",
-                                    "message": "Your session is no longer authorized",
-                                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                                }
-                                yield f"data: {json.dumps(termination_event)}\n\n"
-                                break
-                            last_auth_check = current_time
                         except Exception as auth_error:
+                            # Transient error during auth check (DB, network, etc.) - log and retry later
                             logger.error(
-                                f"Authorization check error for user {user_id}: {auth_error}",
+                                f"Transient authorization check error for user {user_id}: {auth_error}",
                                 extra={
-                                    "event_type": "sse_auth_check_error",
+                                    "event_type": "sse_auth_check_transient_error",
                                     "user_id": user_id,
                                     "error": str(auth_error),
                                 },
+                                exc_info=True,
                             )
-                            # Continue on auth check errors, don't break the stream
+                            # don't update last_auth_check so we will retry sooner on next loop
+                            is_authorized = True  # treat as authorized for now to avoid dropping connection
+
+                        if not is_authorized:
+                            # Before terminating, check if token itself is expired/invalid. If so, close.
+                            token_invalid_or_expired = False
+                            try:
+                                payload = TokenManager.decode_token(access_token)
+                                token_exp = payload.get("exp")
+                                if token_exp:
+                                    token_expiry = datetime.fromtimestamp(
+                                        token_exp, tz=timezone.utc
+                                    )
+                                    if datetime.now(timezone.utc) >= token_expiry:
+                                        token_invalid_or_expired = True
+                            except Exception:
+                                # Token invalid or decoding failed
+                                token_invalid_or_expired = True
+
+                            logger.warning(
+                                f"SSE authorization lost for user {user_id} (token_issue={token_invalid_or_expired})",
+                                extra={
+                                    "event_type": "sse_authorization_lost",
+                                    "user_id": user_id,
+                                    "token_issue": token_invalid_or_expired,
+                                },
+                            )
+
+                            # Send termination event if token expired/invalid or permissions/session explicitly revoked
+                            termination_event = {
+                                "type": "connection_terminated",
+                                "reason": "authorization_lost",
+                                "message": "Your session is no longer authorized",
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                            }
+
+                            yield f"data: {json.dumps(termination_event)}\n\n"
+
+                            # If token was invalid/expired, break immediately. Otherwise break as well since authorization was lost.
+                            break
+                        else:
+                            # Authorization OK (or transient error assumed); update last check time
+                            last_auth_check = current_time
 
                     try:
                         # Wait for event with timeout

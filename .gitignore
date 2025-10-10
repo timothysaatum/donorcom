@@ -33,6 +33,20 @@ logs/
 dev_credentials.txt
 db_fixtures.py
 awscliv2.zip
-# Editor + local environment
+
+# Test scripts and tokens
+test_sse_client.py
+test_sse_full.py
+access_token.txt
+*.token.txt
+
+# Test artifacts (keep tests/ folder, exclude artifacts)
 .pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+.tox/
+*.cover
+
+# Editor + local environment
 .vercel
