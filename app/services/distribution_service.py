@@ -1,3 +1,4 @@
+import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, and_, desc
@@ -68,7 +69,7 @@ class BloodDistributionService:
         blood_product = blood_request.blood_product
         blood_type = blood_request.blood_type
         quantity = blood_request.quantity_requested
-        dispatched_to_id = blood_request.facility_id
+        dispatched_to_id = blood_request.source_facility_id
 
         # Try to find matching inventory automatically (FIFO - First In First Out)
         inventory_result = await self.db.execute(
@@ -90,16 +91,50 @@ class BloodDistributionService:
             inventory_item.quantity -= quantity
             blood_product_id = inventory_item.id
         else:
-            # No matching inventory found - create distribution without inventory link
-            # This allows fulfillment from external sources or manual tracking
-            blood_product_id = None
-            import logging
+            # No matching inventory found - try to resolve an existing inventory record
+            # for the same product/type in this blood bank. If none exists, create a
+            # placeholder inventory record with zero quantity so that distributions
+            # always have a referenceable product id.
+            from sqlalchemy.future import select as _select
 
-            logging.getLogger(__name__).warning(
-                f"No matching inventory found for request {request_id}. "
-                f"Creating distribution without inventory link. "
-                f"Blood product: {blood_product}, Type: {blood_type}, Quantity: {quantity}"
+            lookup_result = await self.db.execute(
+                _select(BloodInventory)
+                .where(
+                    and_(
+                        BloodInventory.blood_bank_id == blood_bank_id,
+                        BloodInventory.blood_product == blood_product,
+                        BloodInventory.blood_type == blood_type,
+                    )
+                )
+                .limit(1)
             )
+            resolved_inventory = lookup_result.scalars().first()
+
+            if resolved_inventory:
+                # Use the existing inventory record even if quantity is insufficient
+                blood_product_id = resolved_inventory.id
+            else:
+                # Create a placeholder inventory entry (quantity 0). This ensures
+                # downstream responses always include a product id even when the
+                # physical stock was not found in inventory.
+                placeholder_inventory = BloodInventory(
+                    blood_product=blood_product,
+                    blood_type=blood_type,
+                    quantity=0,
+                    expiry_date=calculate_expiry_date(blood_product),
+                    blood_bank_id=blood_bank_id,
+                    added_by_id=created_by_id,
+                )
+                self.db.add(placeholder_inventory)
+                await self.db.flush()
+                blood_product_id = placeholder_inventory.id
+
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    f"No matching inventory found for request {request_id}. "
+                    f"Created placeholder inventory id={blood_product_id} for product {blood_product} ({blood_type})"
+                )
 
         # Create distribution record
         new_distribution = BloodDistribution(
@@ -111,7 +146,7 @@ class BloodDistributionService:
             blood_product=blood_product,
             blood_type=blood_type,
             quantity=quantity,
-            notes=notes if notes else "Request dispatched",
+            notes=notes if notes else "Blood issued for request, pending dispatch",
             batch_number=generate_batch_number(),  # Auto-generated
             expiry_date=calculate_expiry_date(
                 blood_product
@@ -153,10 +188,10 @@ class BloodDistributionService:
 
         await self.db.commit()
 
-        # Refresh dashboard metrics immediately for both facilities
+        # Refresh dashboard metrics asynchronously for both facilities (non-blocking)
         try:
             from app.services.dashboard_service import (
-                refresh_facility_dashboard_metrics,
+                async_refresh_facility_dashboard_metrics,
             )
 
             # Refresh for the facility that dispatched (their stock decreased)
@@ -164,20 +199,22 @@ class BloodDistributionService:
                 new_distribution.dispatched_from
                 and new_distribution.dispatched_from.facility_id
             ):
-                await refresh_facility_dashboard_metrics(
-                    self.db, new_distribution.dispatched_from.facility_id
+                asyncio.create_task(
+                    async_refresh_facility_dashboard_metrics(
+                        new_distribution.dispatched_from.facility_id
+                    )
                 )
             # Refresh for the facility that received (their transferred count increased)
             if new_distribution.dispatched_to_id:
-                await refresh_facility_dashboard_metrics(
-                    self.db, new_distribution.dispatched_to_id
+                asyncio.create_task(
+                    async_refresh_facility_dashboard_metrics(new_distribution.dispatched_to_id)
                 )
         except Exception as dashboard_error:
-            # Don't fail the operation if dashboard refresh fails
+            # Don't fail the operation if dashboard refresh scheduling fails
             import logging
 
             logging.getLogger(__name__).warning(
-                f"Failed to refresh dashboard metrics: {dashboard_error}"
+                f"Failed to schedule dashboard refresh: {dashboard_error}"
             )
 
         return new_distribution

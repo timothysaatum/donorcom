@@ -1,7 +1,7 @@
 from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import date, datetime, timedelta
-from typing import List, Dict, Any, Optional, Type
+from typing import List, Dict, Any, Optional
 from abc import ABC, abstractmethod
 import uuid
 from sqlalchemy.exc import SQLAlchemyError
@@ -364,21 +364,26 @@ class StatsService(BaseChartService):
 
     async def get_dashboard_summary(self, facility_id: uuid.UUID) -> Dict[str, Any]:
         """
-        Get dashboard summary with today vs yesterday comparisons.
+        Get dashboard summary with 7-day rolling window comparisons.
+
+        Shows cumulative stats for the last 7 days compared to the previous 7 days.
+        This prevents stats from disappearing and provides meaningful trend data.
 
         SCALABLE HYBRID APPROACH:
         1. Try to get TODAY's data from DashboardDailySummary (fast, cached)
         2. If not found or stale (>5 min old), trigger immediate refresh
-        3. Return data from cache after refresh
+        3. Aggregate 7-day totals from cached daily summaries
+        4. Compare current 7 days vs previous 7 days
 
         This scales to thousands of users because:
         - Most requests hit the cache (O(1) lookup)
         - Cache is automatically refreshed every 5 minutes by scheduler
         - Only triggers refresh if cache is missing/stale
-        - Single facility query (no table scans)
+        - Uses indexed date range queries
         """
         today = date.today()
-        yesterday = today - timedelta(days=1)
+        seven_days_ago = today - timedelta(days=7)
+        fourteen_days_ago = today - timedelta(days=14)
 
         # Try to get today's summary from cache first (FAST PATH)
         today_query = select(DashboardDailySummary).where(
@@ -418,19 +423,45 @@ class StatsService(BaseChartService):
                 logger.error(f"Failed to refresh dashboard cache: {refresh_error}")
                 # Continue with stale data or zeros
 
-        # Get yesterday's summary for comparison (always from cache)
-        yesterday_query = select(DashboardDailySummary).where(
+        # Get last 7 days of summaries (current period)
+        current_period_query = select(DashboardDailySummary).where(
             and_(
                 DashboardDailySummary.facility_id == facility_id,
-                DashboardDailySummary.date == yesterday,
+                DashboardDailySummary.date >= seven_days_ago,
+                DashboardDailySummary.date <= today,
             )
         )
-        yesterday_summary = (
-            await self.db.execute(yesterday_query)
-        ).scalar_one_or_none()
+        current_summaries = (
+            (await self.db.execute(current_period_query)).scalars().all()
+        )
 
-        # If still no today summary after refresh, return zeros
-        if not today_summary:
+        # Get previous 7 days of summaries (comparison period)
+        previous_period_query = select(DashboardDailySummary).where(
+            and_(
+                DashboardDailySummary.facility_id == facility_id,
+                DashboardDailySummary.date >= fourteen_days_ago,
+                DashboardDailySummary.date < seven_days_ago,
+            )
+        )
+        previous_summaries = (
+            (await self.db.execute(previous_period_query)).scalars().all()
+        )
+
+        # Aggregate current period (last 7 days)
+        current_stock = (
+            today_summary.total_stock if today_summary else 0
+        )  # Stock is current, not cumulative
+        current_transferred = sum(s.total_transferred for s in current_summaries)
+        current_requests = sum(s.total_requests for s in current_summaries)
+
+        # Aggregate previous period (days 8-14 ago)
+        # For stock, use the last available value from previous period
+        previous_stock = previous_summaries[-1].total_stock if previous_summaries else 0
+        previous_transferred = sum(s.total_transferred for s in previous_summaries)
+        previous_requests = sum(s.total_requests for s in previous_summaries)
+
+        # If no data available, return zeros
+        if not current_summaries:
             logger.warning(f"No dashboard data available for facility {facility_id}")
             return {
                 "stock": {"value": 0, "change": 0.0, "direction": "neutral"},
@@ -438,41 +469,35 @@ class StatsService(BaseChartService):
                 "requests": {"value": 0, "change": 0.0, "direction": "neutral"},
             }
 
-        # Calculate changes using yesterday's cached data
-        y_stock = yesterday_summary.total_stock if yesterday_summary else 0
-        y_transferred = yesterday_summary.total_transferred if yesterday_summary else 0
-        y_requests = yesterday_summary.total_requests if yesterday_summary else 0
-
-        stock_change, stock_dir = self.calculate_change(
-            today_summary.total_stock, y_stock
-        )
+        # Calculate changes between current 7 days vs previous 7 days
+        stock_change, stock_dir = self.calculate_change(current_stock, previous_stock)
         transferred_change, transferred_dir = self.calculate_change(
-            today_summary.total_transferred, y_transferred
+            current_transferred, previous_transferred
         )
         requests_change, requests_dir = self.calculate_change(
-            today_summary.total_requests, y_requests
+            current_requests, previous_requests
         )
 
         logger.debug(
-            f"Dashboard summary for facility {facility_id}: "
-            f"stock={today_summary.total_stock} (was {y_stock}), "
-            f"transferred={today_summary.total_transferred} (was {y_transferred}), "
-            f"requests={today_summary.total_requests} (was {y_requests})"
+            f"Dashboard summary for facility {facility_id} (7-day rolling): "
+            f"stock={current_stock} (was {previous_stock}), "
+            f"transferred={current_transferred} (was {previous_transferred}), "
+            f"requests={current_requests} (was {previous_requests})"
         )
 
         return {
             "stock": {
-                "value": today_summary.total_stock,
+                "value": current_stock,
                 "change": stock_change,
                 "direction": stock_dir,
             },
             "transferred": {
-                "value": today_summary.total_transferred,
+                "value": current_transferred,
                 "change": transferred_change,
                 "direction": transferred_dir,
             },
             "requests": {
-                "value": today_summary.total_requests,
+                "value": current_requests,
                 "change": requests_change,
                 "direction": requests_dir,
             },

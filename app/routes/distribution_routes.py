@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.future import select
 from app.schemas.distribution_schema import (
     BloodDistributionCreate,
     BloodDistributionResponse,
@@ -10,7 +9,6 @@ from app.schemas.distribution_schema import (
 )
 from app.services.distribution_service import BloodDistributionService
 from app.models.user_model import User
-from app.models.blood_bank_model import BloodBank
 from app.utils.permission_checker import require_permission
 from app.utils.ip_address_finder import get_client_ip
 from app.dependencies import get_db
@@ -28,7 +26,7 @@ import time
 
 logger = get_logger(__name__)
 
-router = APIRouter(prefix="/blood-distribution", tags=["blood distribution"])
+router = APIRouter(prefix="/blood-distributions", tags=["blood distribution"])
 
 
 @router.post(
@@ -241,7 +239,7 @@ async def create_distribution(
 
 
 @router.get(
-    "/facility/{facility_id}", response_model=List[BloodDistributionDetailResponse]
+    "/facilities/{facility_id}", response_model=List[BloodDistributionDetailResponse]
 )
 async def get_distributions_by_facility(
     facility_id: UUID,

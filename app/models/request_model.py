@@ -14,7 +14,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
-from app.db.base import Base
+from app.db.base import Base, UUID
 from app.schemas.distribution_schema import DistributionStatus
 from app.schemas.request_schema import PriorityStatus, ProcessingStatus, RequestStatus
 
@@ -26,13 +26,13 @@ class BloodRequest(Base):
 
     # --- Columns ---
     id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        UUID,
         primary_key=True,
         default=uuid.uuid4,
         index=True,
     )
     request_group_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        UUID,
         nullable=False,
         index=True,
     )
@@ -72,25 +72,25 @@ class BloodRequest(Base):
 
     # --- Relationships ---
     requester_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        UUID,
         ForeignKey("users.id", ondelete="CASCADE"),
         index=True,
     )
     fulfilled_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        PGUUID(as_uuid=True),
+        UUID,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
     facility_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        UUID,
         ForeignKey("facilities.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
         comment="Target/receiving facility for the request",
     )
     source_facility_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        UUID,
         ForeignKey("facilities.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -239,7 +239,7 @@ class DashboardDailySummary(Base):
 
     # --- Relationships ---
     facility_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True),
+        UUID,
         ForeignKey("facilities.id", ondelete="CASCADE"),
         primary_key=True,
     )
