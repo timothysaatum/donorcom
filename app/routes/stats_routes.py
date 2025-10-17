@@ -2,13 +2,16 @@ import asyncio
 import time
 from typing import List, Optional
 from datetime import datetime, timedelta
+
 # FastAPI and database imports
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
+
 # Utility imports for caching and security
 from app.schemas.base_schema import BloodProduct, BloodType
 from app.utils.cache_manager import cache_key, manual_cache_get, manual_cache_set
 from app.utils.permission_checker import require_permission
+
 # Application-specific imports
 from app.dependencies import get_db
 from app.schemas.stats_schema import (
@@ -293,6 +296,11 @@ async def distribution_chart(
         try:
             blood_bank_id = await get_user_blood_bank_id(db, current_user.id)
 
+            # Log the blood bank ID we're querying for
+            logger.info(
+                f"🔍 Distribution Chart: User {current_user.email} (ID: {str(current_user.id)[:8]}...) -> Blood Bank ID: {str(blood_bank_id)[:8] if blood_bank_id else 'NONE'}..."
+            )
+
             # Parse and validate dates
             parsed_from_date = None
             parsed_to_date = None
@@ -343,6 +351,11 @@ async def distribution_chart(
                 to_date=parsed_to_date,
                 selected_blood_products=blood_products,
                 selected_blood_types=blood_types,
+            )
+
+            # Log the results
+            logger.info(
+                f"📊 Distribution Chart: Returned {len(chart_data)} data points for blood bank {str(blood_bank_id)[:8] if blood_bank_id else 'NONE'}..."
             )
 
             # Set actual date range used (with service defaults applied)

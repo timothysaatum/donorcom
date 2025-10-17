@@ -393,10 +393,10 @@ class BloodRequestService:
             )
 
         # Validate facilities exist & fetch their names with security check
-        if len(data.facility_ids) > 100:  # Security: Prevent bulk request abuse
+        if len(data.facility_ids) > 10:  # Security: Prevent bulk request abuse
             raise HTTPException(
                 status_code=400,
-                detail="Cannot create requests to more than 100 facilities at once",
+                detail="Cannot create requests to more than 10 facilities at once",
             )
 
         facilities_result = await self.db.execute(
@@ -464,8 +464,10 @@ class BloodRequestService:
             # Performance: Expire old session objects to free memory
             self.db.expire_all()
 
-            # Send notification BEFORE reloading (use cached facility_map)
+            # Send notifications to all users in target facilities instantly
             facility_names = ", ".join([facility_map[fid] for fid in data.facility_ids])
+
+            # Notify requester that their request was created
             try:
                 await notify(
                     self.db,
@@ -474,7 +476,35 @@ class BloodRequestService:
                     f"Successfully created requests for {data.blood_product} ({data.blood_type}) - {data.quantity_requested} units to {len(data.facility_ids)} facilities: {facility_names}",
                 )
             except Exception as notify_error:
-                logger.error(f"Failed to send notification: {str(notify_error)}")
+                logger.error(
+                    f"Failed to send requester notification: {str(notify_error)}"
+                )
+
+            # Notify all users in target facilities about incoming request
+            try:
+                from app.utils.notification_util import notify_facility
+
+                await notify_facility(
+                    self.db,
+                    list(data.facility_ids),
+                    "New Blood Request Received",
+                    f"New request for {data.blood_product} ({data.blood_type}) - {data.quantity_requested} units from {facility_map.get(source_facility_id, 'Unknown Facility')}",
+                    extra_data={
+                        "type": "new_blood_request",
+                        "request_group_id": str(request_group_id),
+                        "blood_product": data.blood_product,
+                        "blood_type": data.blood_type,
+                        "quantity": data.quantity_requested,
+                        "priority": data.priority,
+                        "source_facility_id": (
+                            str(source_facility_id) if source_facility_id else None
+                        ),
+                    },
+                )
+            except Exception as notify_error:
+                logger.error(
+                    f"Failed to send facility-wide notification: {str(notify_error)}"
+                )
 
             # NOW reload with proper eager loading
             result = await self.db.execute(
@@ -753,7 +783,7 @@ class BloodRequestService:
                 self.db.add(track_state)
                 await self.db.commit()
 
-                # Send notification AFTER commit
+                # Send notification to requester AFTER commit
                 try:
                     await notify(
                         self.db,
@@ -762,7 +792,39 @@ class BloodRequestService:
                         f"Your blood request for {request.blood_product} ({request.blood_type}) has been updated from {old_status.value} to {new_status.value}",
                     )
                 except Exception as notify_error:
-                    logger.error(f"Failed to send notification: {str(notify_error)}")
+                    logger.error(
+                        f"Failed to send requester notification: {str(notify_error)}"
+                    )
+
+                # Notify target facility users for important status changes
+                if new_status in [
+                    RequestStatus.ACCEPTED,
+                    RequestStatus.CANCELLED,
+                    RequestStatus.REJECTED,
+                ]:
+                    try:
+                        from app.utils.notification_util import notify_facility
+
+                        if request.facility_id:
+                            await notify_facility(
+                                self.db,
+                                [request.facility_id],
+                                f"Blood Request {new_status.value.title()}",
+                                f"Request for {request.blood_product} ({request.blood_type}) - {request.quantity_requested} units has been {new_status.value}",
+                                extra_data={
+                                    "type": "request_status_change",
+                                    "request_id": str(request.id),
+                                    "old_status": old_status.value,
+                                    "new_status": new_status.value,
+                                    "blood_product": request.blood_product,
+                                    "blood_type": request.blood_type,
+                                    "quantity": request.quantity_requested,
+                                },
+                            )
+                    except Exception as notify_error:
+                        logger.error(
+                            f"Failed to send facility-wide status notification: {str(notify_error)}"
+                        )
 
             # Handle intelligent cancellation if request is accepted
             if (

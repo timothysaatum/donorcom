@@ -22,6 +22,9 @@ from app.utils.generators import (
     generate_batch_number,
     generate_tracking_number,
 )
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class BloodDistributionService:
@@ -188,6 +191,33 @@ class BloodDistributionService:
 
         await self.db.commit()
 
+        # Send instant notification to target facility users
+        try:
+            from app.utils.notification_util import notify_facility
+
+            if new_distribution.dispatched_to_id:
+                await notify_facility(
+                    self.db,
+                    [new_distribution.dispatched_to_id],
+                    "Blood Shipment In Transit",
+                    f"Blood shipment en route: {blood_product} ({blood_type}) - {quantity} units from {new_distribution.dispatched_from.blood_bank_name}",
+                    extra_data={
+                        "type": "distribution_created",
+                        "distribution_id": str(new_distribution.id),
+                        "tracking_number": new_distribution.tracking_number,
+                        "blood_product": blood_product,
+                        "blood_type": blood_type,
+                        "quantity": quantity,
+                        "from_facility": new_distribution.dispatched_from.blood_bank_name,
+                    },
+                )
+        except Exception as notify_error:
+            import logging
+
+            logging.getLogger(__name__).error(
+                f"Failed to send distribution notification: {str(notify_error)}"
+            )
+
         # Refresh dashboard metrics asynchronously for both facilities (non-blocking)
         try:
             from app.services.dashboard_service import (
@@ -207,7 +237,9 @@ class BloodDistributionService:
             # Refresh for the facility that received (their transferred count increased)
             if new_distribution.dispatched_to_id:
                 asyncio.create_task(
-                    async_refresh_facility_dashboard_metrics(new_distribution.dispatched_to_id)
+                    async_refresh_facility_dashboard_metrics(
+                        new_distribution.dispatched_to_id
+                    )
                 )
         except Exception as dashboard_error:
             # Don't fail the operation if dashboard refresh scheduling fails
@@ -366,6 +398,40 @@ class BloodDistributionService:
             self.db.add(track_state)
         await self.db.commit()
         await self.db.refresh(distribution)
+
+        # IMPORTANT: Refresh dashboard metrics when status changes to DELIVERED
+        # This ensures the "transferred" count updates immediately
+        if (
+            new_status == DistributionStatus.DELIVERED
+            and old_status != DistributionStatus.DELIVERED
+        ):
+            try:
+                from app.services.dashboard_service import (
+                    async_refresh_facility_dashboard_metrics,
+                )
+
+                # Refresh for the facility that dispatched (their transferred count increased)
+                if (
+                    distribution.dispatched_from
+                    and distribution.dispatched_from.facility_id
+                ):
+                    asyncio.create_task(
+                        async_refresh_facility_dashboard_metrics(
+                            distribution.dispatched_from.facility_id
+                        )
+                    )
+                # Refresh for the facility that received (they got new stock)
+                if distribution.dispatched_to_id:
+                    asyncio.create_task(
+                        async_refresh_facility_dashboard_metrics(
+                            distribution.dispatched_to_id
+                        )
+                    )
+            except Exception as dashboard_error:
+                # Don't fail the operation if dashboard refresh scheduling fails
+                logger.warning(
+                    f"Failed to schedule dashboard refresh after delivery: {dashboard_error}"
+                )
 
         return distribution
 

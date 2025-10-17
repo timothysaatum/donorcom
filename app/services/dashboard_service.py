@@ -43,20 +43,27 @@ async def refresh_facility_dashboard_metrics(
         total_stock = (await session.execute(stock_query)).scalar_one()
 
         # --- Transferred (delivered today) ---
-        # Count blood delivered TO this facility (incoming blood)
-        # Note: Using func.date() instead of cast() for SQLite compatibility
-        transferred_query = select(
-            func.coalesce(func.sum(BloodDistribution.quantity), 0)
-        ).where(
-            BloodDistribution.dispatched_to_id == facility_id,
-            BloodDistribution.date_delivered.is_not(None),
-            func.date(BloodDistribution.date_delivered) == today,
+        # Count blood SENT FROM this facility to other facilities (outgoing/issued blood)
+        # This represents distributions your facility has fulfilled/issued
+        # Note: We need to JOIN blood_banks because dispatched_from_id is a blood_bank_id,
+        #       not a facility_id. We match on blood_bank.facility_id == facility_id
+        transferred_query = (
+            select(func.coalesce(func.sum(BloodDistribution.quantity), 0))
+            .select_from(BloodDistribution)
+            .join(BloodDistribution.dispatched_from)  # Join to blood_banks table
+            .where(
+                BloodDistribution.dispatched_from.has(
+                    facility_id=facility_id
+                ),  # Match blood bank's facility
+                BloodDistribution.date_delivered.is_not(None),
+                func.date(BloodDistribution.date_delivered) == today,
+            )
         )
         total_transferred = (await session.execute(transferred_query)).scalar_one()
 
         # --- Requests (created today) ---
-        # Count requests received BY this facility (facility_id)
-        # This represents incoming blood requests to this facility
+        # Count requests RECEIVED BY this facility (incoming requests to fulfill)
+        # This represents blood requests sent TO your facility that you need to fulfill
         # Note: Using func.date() instead of cast() for SQLite compatibility
         requests_query = select(func.count(BloodRequest.id)).where(
             BloodRequest.facility_id == facility_id,
@@ -129,18 +136,24 @@ async def get_realtime_dashboard_summary(
     )
     total_stock = (await session.execute(stock_query)).scalar_one()
 
-    # Transferred in last 7 days
-    # Note: Using func.date() instead of cast() for SQLite compatibility
-    transferred_query = select(
-        func.coalesce(func.sum(BloodDistribution.quantity), 0)
-    ).where(
-        BloodDistribution.dispatched_to_id == facility_id,
-        BloodDistribution.date_delivered.is_not(None),
-        func.date(BloodDistribution.date_delivered) >= seven_days_ago,
+    # Transferred in last 7 days - blood SENT FROM this facility (issued/fulfilled)
+    # Note: We need to JOIN blood_banks because dispatched_from_id is a blood_bank_id,
+    #       not a facility_id. We match on blood_bank.facility_id == facility_id
+    transferred_query = (
+        select(func.coalesce(func.sum(BloodDistribution.quantity), 0))
+        .select_from(BloodDistribution)
+        .join(BloodDistribution.dispatched_from)  # Join to blood_banks table
+        .where(
+            BloodDistribution.dispatched_from.has(
+                facility_id=facility_id
+            ),  # Match blood bank's facility
+            BloodDistribution.date_delivered.is_not(None),
+            func.date(BloodDistribution.date_delivered) >= seven_days_ago,
+        )
     )
     total_transferred = (await session.execute(transferred_query)).scalar_one()
 
-    # Requests in last 7 days - count requests received BY this facility
+    # Requests in last 7 days - requests RECEIVED BY this facility (to fulfill)
     # Note: Using func.date() instead of cast() for SQLite compatibility
     requests_query = select(func.count(BloodRequest.id)).where(
         BloodRequest.facility_id == facility_id,
