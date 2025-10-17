@@ -47,32 +47,43 @@ async def notify_facility(
     extra_data: dict = None,
 ) -> None:
     """
-    Notify all active users in specified facilities instantly via SSE.
-    Creates DB records and pushes to all connected SSE clients without blocking.
+    Notify ALL active users in specified facilities instantly via SSE.
+
+    This ensures that EVERYONE in the facility sees the notification, regardless of:
+    - Their current shift status
+    - Whether they created the request
+    - Their role or permissions
+
+    Perfect for shift handovers where staff need to see pending requests
+    created by colleagues who have ended their shift.
 
     Args:
         db: Database session
         facility_ids: List of facility IDs whose users should be notified
         title: Notification title
         message: Notification message
-        extra_data: Optional additional data to include in SSE payload
+        extra_data: Optional additional data to include in SSE payload (e.g., request_id, type)
     """
     try:
-        # Query all active users in the target facilities
+        # Query ALL active users in the target facilities
+        # Note: Only checking is_active=True (not status) to include all active accounts
         result = await db.execute(
             select(User.id, User.email, User.first_name, User.last_name).where(
                 User.work_facility_id.in_(facility_ids),
-                User.is_active == True,
-                User.status == True,
+                User.is_active == True,  # Only active accounts
+                # Removed status check - notify everyone regardless of online/offline status
             )
         )
         facility_users = result.all()
 
         if not facility_users:
-            logger.warning(f"No active users found in facilities: {facility_ids}")
+            logger.warning(
+                f"No active users found in facilities: {[str(fid)[:8] + '...' for fid in facility_ids]}"
+            )
             return
 
         # Create notification records in DB for all users
+        # These persist even if users are offline and can be viewed later
         notifications = []
         for user in facility_users:
             notification = Notification(user_id=user.id, title=title, message=message)
@@ -81,26 +92,40 @@ async def notify_facility(
         db.add_all(notifications)
         await db.commit()
 
-        # Prepare SSE payload
+        # Prepare SSE payload with all data
         timestamp = datetime.now(timezone.utc).isoformat()
-        payload = {"title": title, "message": message, "timestamp": timestamp}
+        payload = {
+            "title": title,
+            "message": message,
+            "timestamp": timestamp,
+            "facility_wide": True,  # Flag to indicate this is a facility-wide notification
+        }
 
-        # Add extra data if provided
+        # Add extra data if provided (e.g., request_id, distribution_id, type)
         if extra_data:
             payload.update(extra_data)
 
-        # Get SSE manager
+        # Get SSE manager ONCE (reuse connection manager)
         manager = ConnectionManager()
 
-        # Send to all facility users instantly without blocking
-        # Use create_task to make it truly non-blocking
+        # Send to all facility users INSTANTLY using concurrent delivery
+        # This ensures INSTANT notification delivery to all connected users
         user_ids = [str(user.id) for user in facility_users]
-        for user_id in user_ids:
-            asyncio.create_task(manager.send_personal_message(user_id, payload))
+
+        # Send all notifications concurrently for INSTANT delivery
+        send_tasks = [
+            manager.send_personal_message(user_id, payload) for user_id in user_ids
+        ]
+
+        # Wait for all to be sent (ensures instant delivery, not fire-and-forget)
+        results = await asyncio.gather(*send_tasks, return_exceptions=True)
+
+        # Count successful deliveries
+        success_count = sum(1 for r in results if r is True)
 
         logger.info(
-            f"Facility-wide notification sent to {len(facility_users)} users "
-            f"in {len(facility_ids)} facilities: {title}"
+            f"Facility-wide notification sent INSTANTLY to {success_count}/{len(facility_users)} users "
+            f"in {len(facility_ids)} facility(ies): '{title}' - {message[:50]}..."
         )
 
     except Exception as e:

@@ -191,10 +191,11 @@ class BloodDistributionService:
 
         await self.db.commit()
 
-        # Send instant notification to target facility users
+        # Send instant notification to BOTH facilities
         try:
             from app.utils.notification_util import notify_facility
 
+            # Notify RECEIVING facility (dispatched_to)
             if new_distribution.dispatched_to_id:
                 await notify_facility(
                     self.db,
@@ -202,13 +203,38 @@ class BloodDistributionService:
                     "Blood Shipment In Transit",
                     f"Blood shipment en route: {blood_product} ({blood_type}) - {quantity} units from {new_distribution.dispatched_from.blood_bank_name}",
                     extra_data={
-                        "type": "distribution_created",
+                        "type": "distribution_incoming",
                         "distribution_id": str(new_distribution.id),
                         "tracking_number": new_distribution.tracking_number,
                         "blood_product": blood_product,
                         "blood_type": blood_type,
                         "quantity": quantity,
                         "from_facility": new_distribution.dispatched_from.blood_bank_name,
+                    },
+                )
+
+            # 🔥 ALSO notify SENDING facility (dispatched_from's facility)
+            if (
+                new_distribution.dispatched_from
+                and new_distribution.dispatched_from.facility_id
+            ):
+                await notify_facility(
+                    self.db,
+                    [new_distribution.dispatched_from.facility_id],
+                    "Blood Shipment Dispatched",
+                    f"Your facility dispatched: {blood_product} ({blood_type}) - {quantity} units to {new_distribution.dispatched_to.facility_name if new_distribution.dispatched_to else 'facility'}",
+                    extra_data={
+                        "type": "distribution_outgoing",
+                        "distribution_id": str(new_distribution.id),
+                        "tracking_number": new_distribution.tracking_number,
+                        "blood_product": blood_product,
+                        "blood_type": blood_type,
+                        "quantity": quantity,
+                        "to_facility": (
+                            new_distribution.dispatched_to.facility_name
+                            if new_distribution.dispatched_to
+                            else None
+                        ),
                     },
                 )
         except Exception as notify_error:

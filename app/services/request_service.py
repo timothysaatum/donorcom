@@ -399,13 +399,17 @@ class BloodRequestService:
                 detail="Cannot create requests to more than 10 facilities at once",
             )
 
+        # Fetch target facilities AND source facility names for notifications
+        all_facility_ids = list(set(data.facility_ids + [source_facility_id]))
         facilities_result = await self.db.execute(
             select(Facility.id, Facility.facility_name).where(
-                Facility.id.in_(data.facility_ids)
+                Facility.id.in_(all_facility_ids)
             )
         )
         facility_map = {row.id: row.facility_name for row in facilities_result}
-        if len(facility_map) != len(data.facility_ids):
+
+        # Verify target facilities exist
+        if not all(fid in facility_map for fid in data.facility_ids):
             missing_ids = set(data.facility_ids) - set(facility_map.keys())
             raise HTTPException(
                 status_code=400,
@@ -480,7 +484,35 @@ class BloodRequestService:
                     f"Failed to send requester notification: {str(notify_error)}"
                 )
 
-            # Notify all users in target facilities about incoming request
+            # 🔥 NEW: Notify SOURCE facility (requester's facility) about outgoing request
+            # This ensures everyone at the requesting facility sees the request in their notification panel
+            if source_facility_id:
+                try:
+                    from app.utils.notification_util import notify_facility
+
+                    await notify_facility(
+                        self.db,
+                        [source_facility_id],
+                        "Blood Request Sent",
+                        f"Your facility requested {data.blood_product} ({data.blood_type}) - {data.quantity_requested} units from {len(data.facility_ids)} facilities: {facility_names}",
+                        extra_data={
+                            "type": "outgoing_blood_request",
+                            "request_group_id": str(request_group_id),
+                            "blood_product": data.blood_product,
+                            "blood_type": data.blood_type,
+                            "quantity": data.quantity_requested,
+                            "priority": data.priority,
+                            "target_facilities": [
+                                str(fid) for fid in data.facility_ids
+                            ],
+                        },
+                    )
+                except Exception as notify_error:
+                    logger.error(
+                        f"Failed to send source facility notification: {str(notify_error)}"
+                    )
+
+            # Notify all users in TARGET facilities about incoming request
             try:
                 from app.utils.notification_util import notify_facility
 
@@ -490,7 +522,7 @@ class BloodRequestService:
                     "New Blood Request Received",
                     f"New request for {data.blood_product} ({data.blood_type}) - {data.quantity_requested} units from {facility_map.get(source_facility_id, 'Unknown Facility')}",
                     extra_data={
-                        "type": "new_blood_request",
+                        "type": "incoming_blood_request",
                         "request_group_id": str(request_group_id),
                         "blood_product": data.blood_product,
                         "blood_type": data.blood_type,
@@ -503,7 +535,7 @@ class BloodRequestService:
                 )
             except Exception as notify_error:
                 logger.error(
-                    f"Failed to send facility-wide notification: {str(notify_error)}"
+                    f"Failed to send target facility notification: {str(notify_error)}"
                 )
 
             # NOW reload with proper eager loading
@@ -805,6 +837,7 @@ class BloodRequestService:
                     try:
                         from app.utils.notification_util import notify_facility
 
+                        # Notify TARGET facility (the one fulfilling the request)
                         if request.facility_id:
                             await notify_facility(
                                 self.db,
@@ -812,7 +845,25 @@ class BloodRequestService:
                                 f"Blood Request {new_status.value.title()}",
                                 f"Request for {request.blood_product} ({request.blood_type}) - {request.quantity_requested} units has been {new_status.value}",
                                 extra_data={
-                                    "type": "request_status_change",
+                                    "type": "request_status_change_target",
+                                    "request_id": str(request.id),
+                                    "old_status": old_status.value,
+                                    "new_status": new_status.value,
+                                    "blood_product": request.blood_product,
+                                    "blood_type": request.blood_type,
+                                    "quantity": request.quantity_requested,
+                                },
+                            )
+
+                        # 🔥 ALSO notify SOURCE facility (the requester's facility) about status change
+                        if request.source_facility_id:
+                            await notify_facility(
+                                self.db,
+                                [request.source_facility_id],
+                                f"Your Request {new_status.value.title()}",
+                                f"Your request for {request.blood_product} ({request.blood_type}) - {request.quantity_requested} units has been {new_status.value} by {request.target_facility.facility_name if request.target_facility else 'facility'}",
+                                extra_data={
+                                    "type": "request_status_change_source",
                                     "request_id": str(request.id),
                                     "old_status": old_status.value,
                                     "new_status": new_status.value,
