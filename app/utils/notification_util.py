@@ -65,16 +65,39 @@ async def notify_facility(
         extra_data: Optional additional data to include in SSE payload (e.g., request_id, type)
     """
     try:
-        # Query ALL active users in the target facilities
-        # Note: Only checking is_active=True (not status) to include all active accounts
-        result = await db.execute(
+        # Import Facility model for manager lookup
+        from app.models.health_facility_model import Facility
+
+        # Query ALL active users in the target facilities via TWO relationships:
+        # 1. Staff users: work_facility_id matches facility
+        # 2. Administrators: User.id matches Facility.facility_manager_id
+
+        # Get staff users (work_facility_id relationship)
+        staff_result = await db.execute(
             select(User.id, User.email, User.first_name, User.last_name).where(
                 User.work_facility_id.in_(facility_ids),
-                User.is_active == True,  # Only active accounts
-                # Removed status check - notify everyone regardless of online/offline status
+                User.is_active == True,
             )
         )
-        facility_users = result.all()
+        staff_users = staff_result.all()
+
+        # Get facility administrators (facility_manager_id relationship)
+        admin_result = await db.execute(
+            select(User.id, User.email, User.first_name, User.last_name)
+            .select_from(Facility)
+            .join(User, Facility.facility_manager_id == User.id)
+            .where(
+                Facility.id.in_(facility_ids),
+                User.is_active == True,
+            )
+        )
+        admin_users = admin_result.all()
+
+        # Combine both lists and remove duplicates (in case someone is both staff and admin)
+        all_users = list(
+            {user.id: user for user in (staff_users + admin_users)}.values()
+        )
+        facility_users = all_users
 
         if not facility_users:
             logger.warning(
@@ -125,6 +148,7 @@ async def notify_facility(
 
         logger.info(
             f"Facility-wide notification sent INSTANTLY to {success_count}/{len(facility_users)} users "
+            f"({len(staff_users)} staff + {len(admin_users)} admins) "
             f"in {len(facility_ids)} facility(ies): '{title}' - {message[:50]}..."
         )
 
